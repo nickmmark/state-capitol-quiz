@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>States & Capitals Trainer</title>
+<style>
+  :root {
+    --fg:#111; --bg:#fafafa; --muted:#6b7280; --card:#fff; --border:#e5e7eb;
+    --accent:#2563eb; --ok:#16a34a; --bad:#dc2626;
+    --mapHl:#bfdbfe;          /* light blue */
+    --mapHlStroke:#1e3a8a;    /* darker blue outline */
+  }
+  html,body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1100px;margin:28px auto;padding:0 16px}
+  header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  h1{font-size:20px;margin:0}
+  .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .pill{border:1px solid var(--border);background:var(--card);border-radius:999px;padding:6px 12px;font-size:14px}
+  .pill.badge{border-color:#c7d2fe;background:#eef2ff}
+  .sel{border:1px solid var(--border);background:var(--card);border-radius:10px;padding:6px 10px;font-size:14px}
+  .btn{all:unset;cursor:pointer;border:1px solid var(--border);background:var(--card);padding:8px 12px;border-radius:10px}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .small{font-size:12px;color:var(--muted)}
+  .progress{height:8px;background:#eee;border-radius:999px;overflow:hidden;margin:8px 0 12px}
+  .bar{height:100%;background:var(--accent);width:0%}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media (max-width:900px){ .grid{grid-template-columns:1fr} }
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:0 1px 0 rgba(0,0,0,.04);padding:16px}
+  .mapbox{position:relative;display:flex;align-items:center;justify-content:center;min-height:320px}
+  .mapbox svg{max-width:100%;height:auto}
+  .map-status{position:absolute;top:8px;left:8px;background:#fff;border:1px solid var(--border);padding:4px 8px;border-radius:8px}
+  .meta{color:var(--muted);font-size:14px;margin-bottom:8px}
+  .q{font-size:20px;line-height:1.35;margin:0 0 12px}
+  .choices{display:grid;gap:10px}
+  .choices.cols-4{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .choices.cols-6{grid-template-columns:repeat(3,minmax(0,1fr))}
+  @media (max-width:520px){ .choices.cols-6{grid-template-columns:repeat(2,minmax(0,1fr))} }
+  button.choice{all:unset;display:block;border:1px solid var(--border);background:var(--card);padding:12px 14px;border-radius:10px;cursor:pointer}
+  button.choice:hover{border-color:#cfd7ff;background:#f6f8ff}
+  button.choice.correct{border-color:var(--ok);background:#f0fbf4}
+  button.choice.wrong{border-color:var(--bad);background:#fff5f5}
+  .answer-row{display:flex;gap:8px;align-items:center}
+  .answer-row input[type="text"]{flex:1;border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:16px}
+  .feedback{font-size:18px;font-weight:700;margin-top:10px}
+  .hide{display:none}
+
+  /* Wrong review dialog */
+  dialog{border:none;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.15);padding:0;max-width:720px;width:min(92vw,720px)}
+  .dlg-head{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--border);background:var(--card)}
+  .dlg-body{padding:10px 16px 16px;background:var(--card);max-height:min(70vh,580px);overflow:auto}
+  .list{display:flex;flex-direction:column;gap:10px}
+  .row{border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:#fff}
+  .row h4{margin:0 0 6px;font-size:15px}
+  .row p{margin:0;font-size:14px}
+  .row .mine{color:var(--bad)}
+  .row .correct{color:var(--ok)}
+  .row button.jump{margin-top:8px}
+
+  /* Highlighted state: blue fill, dark blue stroke; animate on appear */
+  .hl, .hl * { fill: var(--mapHl) !important; stroke: var(--mapHlStroke) !important; stroke-width:4 !important; }
+  .hl-anim, .hl-anim * { 
+    transform-box: fill-box; 
+    transform-origin: center;
+    animation: nudge .45s ease-out;
+  }
+  @keyframes nudge {
+    0%   { transform: translate(0,0) scale(1); }
+    35%  { transform: translate(0,-4px) scale(1.02); }
+    100% { transform: translate(0,0) scale(1); }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>States & Capitals Trainer</h1>
+      <div class="controls">
+        <select id="mode" class="sel" title="Choose mode">
+          <option value="easy">Easy — find the highlighted state</option>
+          <option value="intermediate">Intermediate — pick the capital (6 choices)</option>
+          <option value="hard">Hard — type the capital</option>
+        </select>
+        <span class="pill" id="scorePill">Score: 0/0 0%</span>
+        <span class="pill">Question <strong id="qnum">0</strong>/<span id="qcount">0</span></span>
+        <span class="pill badge hide" id="deckBadge">Wrong-only mode</span>
+        <button class="btn" id="wrongBtn" disabled>Wrong (0)</button>
+        <button class="btn" id="retakeWrongBtn" disabled>Retake Wrong Only</button>
+        <button class="btn" id="shuffleBtn">Shuffle</button>
+        <button class="btn" id="restartBtn">Restart</button>
+      </div>
+    </header>
+
+    <div class="progress"><div class="bar" id="bar"></div></div>
+
+    <div class="grid">
+      <!-- Map / Asset -->
+      <div class="card">
+        <div class="meta">Map</div>
+        <div class="mapbox" id="mapbox">
+          <div class="map-status small" id="mapStatus">Loading SVG map…</div>
+          <!-- SVG will be injected here -->
+        </div>
+      </div>
+
+      <!-- Quiz area -->
+      <div class="card">
+        <div class="meta" id="meta">Pick the correct answer.</div>
+        <p class="q" id="question">Loading…</p>
+
+        <!-- Multiple choice container -->
+        <div class="choices" id="choices"></div>
+
+        <!-- Free response container (hard mode) -->
+        <div id="freeRow" class="answer-row hide" style="margin-top:8px">
+          <input type="text" id="freeInput" placeholder="Type the capital…" autocomplete="off" />
+          <button class="btn primary" id="checkBtn">Check</button>
+        </div>
+
+        <div id="feedback" class="feedback hide"></div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:8px;flex-wrap:wrap">
+          <div class="small" id="hintArea"></div>
+          <div>
+            <button class="btn" id="prevBtn">Prev</button>
+            <button class="btn primary" id="nextBtn">Next</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <details style="margin-top:14px">
+      <summary>ℹ️ Notes for teachers/parents</summary>
+      <ul class="small" style="margin-top:6px">
+        <li>Modes: <strong>Easy</strong> (highlighted state → pick state), <strong>Intermediate</strong> (state → pick capital, 6 options), <strong>Hard</strong> (state → type capital).</li>
+        <li>Score is shown as <em>correct / answered</em> with whole-number percent.</li>
+        <li><strong>Wrong (n)</strong> shows missed questions; <strong>Retake Wrong Only</strong> makes a mini-deck from them.</li>
+        <li>Keyboard: in MCQ press <strong>1–6</strong> to choose; in Hard press <strong>Enter</strong> to submit.</li>
+      </ul>
+    </details>
+  </div>
+
+  <!-- Wrong review dialog -->
+  <dialog id="wrongDlg">
+    <div class="dlg-head">
+      <strong>Review: Wrong Answers</strong>
+      <button class="btn" id="closeWrong">Close</button>
+    </div>
+    <div class="dlg-body">
+      <div id="wrongList" class="list"></div>
+    </div>
+  </dialog>
+
+<script>
+/* --------------------------------------------
+   Data: States, Capitals, and In-State City Decoys
+---------------------------------------------*/
+const STATES = [
+  {code:"AL",name:"Alabama",capital:"Montgomery",region:"South",cities:["Birmingham","Mobile","Huntsville","Tuscaloosa"]},
+  {code:"AK",name:"Alaska",capital:"Juneau",region:"West",cities:["Anchorage","Fairbanks","Sitka","Ketchikan"]},
+  {code:"AZ",name:"Arizona",capital:"Phoenix",region:"West",cities:["Tucson","Mesa","Chandler","Scottsdale"]},
+  {code:"AR",name:"Arkansas",capital:"Little Rock",region:"South",cities:["Fayetteville","Fort Smith","Jonesboro","Springdale"]},
+  {code:"CA",name:"California",capital:"Sacramento",region:"West",cities:["Los Angeles","San Diego","San Jose","San Francisco"]},
+  {code:"CO",name:"Colorado",capital:"Denver",region:"West",cities:["Colorado Springs","Aurora","Fort Collins","Boulder"]},
+  {code:"CT",name:"Connecticut",capital:"Hartford",region:"Northeast",cities:["Bridgeport","New Haven","Stamford","Waterbury"]},
+  {code:"DE",name:"Delaware",capital:"Dover",region:"South",cities:["Wilmington","Newark","Middletown"]},
+  {code:"FL",name:"Florida",capital:"Tallahassee",region:"South",cities:["Miami","Orlando","Tampa","Jacksonville"]},
+  {code:"GA",name:"Georgia",capital:"Atlanta",region:"South",cities:["Savannah","Augusta","Macon","Columbus"]},
+  {code:"HI",name:"Hawaii",capital:"Honolulu",region:"West",cities:["Hilo","Kailua","Kaneohe"]},
+  {code:"ID",name:"Idaho",capital:"Boise",region:"West",cities:["Idaho Falls","Nampa","Meridian","Pocatello"]},
+  {code:"IL",name:"Illinois",capital:"Springfield",region:"Midwest",cities:["Chicago","Aurora","Naperville","Peoria"]},
+  {code:"IN",name:"Indiana",capital:"Indianapolis",region:"Midwest",cities:["Fort Wayne","Evansville","South Bend","Bloomington"]},
+  {code:"IA",name:"Iowa",capital:"Des Moines",region:"Midwest",cities:["Cedar Rapids","Davenport","Sioux City","Iowa City"]},
+  {code:"KS",name:"Kansas",capital:"Topeka",region:"Midwest",cities:["Wichita","Overland Park","Kansas City","Olathe"]},
+  {code:"KY",name:"Kentucky",capital:"Frankfort",region:"South",cities:["Louisville","Lexington","Bowling Green","Owensboro"]},
+  {code:"LA",name:"Louisiana",capital:"Baton Rouge",region:"South",cities:["New Orleans","Shreveport","Lafayette","Lake Charles"]},
+  {code:"ME",name:"Maine",capital:"Augusta",region:"Northeast",cities:["Portland","Bangor","Lewiston"]},
+  {code:"MD",name:"Maryland",capital:"Annapolis",region:"South",cities:["Baltimore","Frederick","Rockville","Silver Spring"]},
+  {code:"MA",name:"Massachusetts",capital:"Boston",region:"Northeast",cities:["Worcester","Springfield","Cambridge","Lowell"]},
+  {code:"MI",name:"Michigan",capital:"Lansing",region:"Midwest",cities:["Detroit","Grand Rapids","Ann Arbor","Flint"]},
+  {code:"MN",name:"Minnesota",capital:"Saint Paul",region:"Midwest",cities:["Minneapolis","Rochester","Duluth","Bloomington"]},
+  {code:"MS",name:"Mississippi",capital:"Jackson",region:"South",cities:["Gulfport","Hattiesburg","Biloxi","Southaven"]},
+  {code:"MO",name:"Missouri",capital:"Jefferson City",region:"Midwest",cities:["Kansas City","St. Louis","Springfield","Columbia"]},
+  {code:"MT",name:"Montana",capital:"Helena",region:"West",cities:["Billings","Missoula","Bozeman","Great Falls"]},
+  {code:"NE",name:"Nebraska",capital:"Lincoln",region:"Midwest",cities:["Omaha","Bellevue","Grand Island"]},
+  {code:"NV",name:"Nevada",capital:"Carson City",region:"West",cities:["Las Vegas","Reno","Henderson","Sparks"]},
+  {code:"NH",name:"New Hampshire",capital:"Concord",region:"Northeast",cities:["Manchester","Nashua","Derry"]},
+  {code:"NJ",name:"New Jersey",capital:"Trenton",region:"Northeast",cities:["Newark","Jersey City","Paterson","Elizabeth"]},
+  {code:"NM",name:"New Mexico",capital:"Santa Fe",region:"West",cities:["Albuquerque","Las Cruces","Rio Rancho"]},
+  {code:"NY",name:"New York",capital:"Albany",region:"Northeast",cities:["New York City","Buffalo","Rochester","Syracuse"]},
+  {code:"NC",name:"North Carolina",capital:"Raleigh",region:"South",cities:["Charlotte","Greensboro","Durham","Winston-Salem"]},
+  {code:"ND",name:"North Dakota",capital:"Bismarck",region:"Midwest",cities:["Fargo","Grand Forks","Minot"]},
+  {code:"OH",name:"Ohio",capital:"Columbus",region:"Midwest",cities:["Cleveland","Cincinnati","Toledo","Akron"]},
+  {code:"OK",name:"Oklahoma",capital:"Oklahoma City",region:"South",cities:["Tulsa","Norman","Broken Arrow","Lawton"]},
+  {code:"OR",name:"Oregon",capital:"Salem",region:"West",cities:["Portland","Eugene","Gresham","Beaverton"]},
+  {code:"PA",name:"Pennsylvania",capital:"Harrisburg",region:"Northeast",cities:["Philadelphia","Pittsburgh","Allentown","Erie"]},
+  {code:"RI",name:"Rhode Island",capital:"Providence",region:"Northeast",cities:["Warwick","Cranston","Pawtucket"]},
+  {code:"SC",name:"South Carolina",capital:"Columbia",region:"South",cities:["Charleston","Greenville","Myrtle Beach","Spartanburg"]},
+  {code:"SD",name:"South Dakota",capital:"Pierre",region:"Midwest",cities:["Sioux Falls","Rapid City","Aberdeen"]},
+  {code:"TN",name:"Tennessee",capital:"Nashville",region:"South",cities:["Memphis","Knoxville","Chattanooga","Clarksville"]},
+  {code:"TX",name:"Texas",capital:"Austin",region:"South",cities:["Houston","Dallas","San Antonio","Fort Worth"]},
+  {code:"UT",name:"Utah",nameAlt:"Utah",capital:"Salt Lake City",region:"West",cities:["Provo","Orem","West Valley City","Ogden"]},
+  {code:"VT",name:"Vermont",capital:"Montpelier",region:"Northeast",cities:["Burlington","Rutland","South Burlington"]},
+  {code:"VA",name:"Virginia",capital:"Richmond",region:"South",cities:["Virginia Beach","Norfolk","Arlington","Alexandria"]},
+  {code:"WA",name:"Washington",capital:"Olympia",region:"West",cities:["Seattle","Spokane","Tacoma","Bellevue"]},
+  {code:"WV",name:"West Virginia",capital:"Charleston",region:"South",cities:["Huntington","Morgantown","Parkersburg"]},
+  {code:"WI",name:"Wisconsin",capital:"Madison",region:"Midwest",cities:["Milwaukee","Green Bay","Kenosha","Racine"]},
+  {code:"WY",name:"Wyoming",capital:"Cheyenne",region:"West",cities:["Casper","Laramie","Gillette","Rock Springs"]},
+];
+
+const byCode = Object.fromEntries(STATES.map(s=>[s.code,s]));
+const stateNames = STATES.map(s=>s.name);
+const capitalNames = STATES.map(s=>s.capital);
+
+// DOM refs
+const modeSel = document.getElementById('mode');
+const scorePill = document.getElementById('scorePill');
+const qnumEl = document.getElementById('qnum');
+const qcountEl = document.getElementById('qcount');
+const deckBadge = document.getElementById('deckBadge');
+const barEl = document.getElementById('bar');
+
+const mapbox = document.getElementById('mapbox');
+const mapStatus = document.getElementById('mapStatus');
+
+const metaEl = document.getElementById('meta');
+const questionEl = document.getElementById('question');
+const choicesEl = document.getElementById('choices');
+const freeRow = document.getElementById('freeRow');
+const freeInput = document.getElementById('freeInput');
+const checkBtn = document.getElementById('checkBtn');
+const feedbackEl = document.getElementById('feedback');
+const hintArea = document.getElementById('hintArea');
+
+const prevBtn = document.getElementById('prevBtn');
+const nextBtn = document.getElementById('nextBtn');
+const wrongBtn = document.getElementById('wrongBtn');
+const retakeWrongBtn = document.getElementById('retakeWrongBtn');
+
+const wrongDlg = document.getElementById('wrongDlg');
+const wrongList = document.getElementById('wrongList');
+const closeWrong = document.getElementById('closeWrong');
+
+// Engine state
+let deck = [];
+let idx = 0;
+let score = 0;
+let answered = new Map();
+let wrongOnly = false;
+let svgRoot = null;
+let currentHighlight = null;
+let highlightedNodes = [];
+
+// Utils
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+function answeredCount(){ return answered.size; }
+function wrongCodes(){ return [...answered.entries()].filter(([c,res])=>!res.correct).map(([c])=>c); }
+function percent(){ const a=answeredCount(); return a? Math.floor((score/a)*100) : 0; }
+function setBadge(){ deckBadge.classList.toggle('hide', !wrongOnly); }
+function updateHeader(){
+  scorePill.textContent = `Score: ${score}/${answeredCount()} ${percent()}%`;
+  qcountEl.textContent = deck.length;
+  qnumEl.textContent = Math.min(idx+1, deck.length);
+  barEl.style.width = `${Math.round((idx)/Math.max(deck.length,1)*100)}%`;
+  const w = wrongCodes().length;
+  wrongBtn.textContent = `Wrong (${w})`;
+  wrongBtn.disabled = w===0;
+  retakeWrongBtn.disabled = w===0;
+  setBadge();
+}
+
+// Map load
+const SVG_URL = "https://upload.wikimedia.org/wikipedia/commons/1/1a/Blank_US_Map_%28states_only%29.svg";
+
+async function loadSvgFromUrl(){
+  try{
+    console.log("[map] Fetching SVG from", SVG_URL);
+    const res = await fetch(SVG_URL, {mode:'cors'});
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    injectSvg(text);
+    mapStatus.textContent = "Map loaded ✅";
+    setTimeout(()=>mapStatus.classList.add('hide'), 800);
+  } catch(e){
+    console.warn("[map] Auto-load failed:", e);
+    mapStatus.textContent = "Couldn’t load map.";
+  }
+}
+
+function injectSvg(svgText){
+  [...mapbox.querySelectorAll('svg')].forEach(n=>n.remove());
+  const wrap = document.createElement('div');
+  wrap.innerHTML = svgText.trim();
+  const svg = wrap.querySelector('svg');
+  if(!svg){ mapStatus.textContent = "Invalid SVG data."; return; }
+
+  svg.removeAttribute('width');
+  svg.removeAttribute('height');
+  svg.setAttribute('id','usmap');
+  mapbox.appendChild(svg);
+  try{
+    const bbox = svg.getBBox();
+    svg.setAttribute('viewBox', `${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`);
+  } catch(e){
+    console.warn("[map] getBBox failed, using existing viewBox if any.");
+  }
+  svg.style.maxWidth = '100%';
+  svg.style.height = 'auto';
+
+  svgRoot = svg;
+
+  // Resolve coverage
+  let found = 0;
+  const missing = [];
+  STATES.forEach(s=>{
+    const nodes = findStateNodes(s.code, s.name);
+    if(nodes.length){ found++; }
+    else { missing.push(`${s.code}:${s.name}`); }
+  });
+  console.log(`[map] Resolved ${found}/50 states. Missing:`, missing);
+  mapStatus.textContent = found >= 45 ? "Map loaded ✅" : `Map loaded (${found}/50 matched — see console)`;
+  setTimeout(()=>mapStatus.classList.add('hide'), 1500);
+
+  attachMapClick();
+}
+
+// Matching helpers
+function findStateNodes(code, name){
+  if(!svgRoot) return [];
+  const results = new Set();
+
+  const idCandidates = [
+    `#${CSS.escape(code)}`,
+    `#US-${CSS.escape(code)}`,
+    `#us-${CSS.escape(code.toLowerCase())}`
+  ];
+  for(const sel of idCandidates){
+    const el = svgRoot.querySelector(sel);
+    if(el) results.add(el);
+  }
+
+  const dataCode = svgRoot.querySelector(`[data-code="${code}"]`);
+  if(dataCode) results.add(dataCode);
+
+  const nameSelectors = [
+    `[inkscape\\:label="${cssEq(name)}"]`,
+    `[data-name="${cssEq(name)}"]`
+  ];
+  for(const sel of nameSelectors){
+    svgRoot.querySelectorAll(sel).forEach(el=>results.add(el));
+  }
+
+  svgRoot.querySelectorAll('title').forEach(t=>{
+    const txt = (t.textContent||'').trim().toLowerCase();
+    if(txt === name.toLowerCase() && t.parentElement){ results.add(t.parentElement); }
+  });
+
+  return [...results];
+}
+function cssEq(s){ return s.replace(/"/g,'\\"'); }
+
+function clearHighlight(){
+  if(!svgRoot) return;
+  svgRoot.querySelectorAll('.hl').forEach(n=>{
+    n.classList.remove('hl');
+    n.classList.remove('hl-anim');
+  });
+  highlightedNodes = [];
+  currentHighlight = null;
+}
+
+function highlightState(code){
+  const st = byCode[code];
+  clearHighlight();
+  const nodes = findStateNodes(code, st.name);
+  if(!nodes.length){
+    console.warn(`[map] highlight: No nodes found for ${code} (${st.name})`);
+    return;
+  }
+  nodes.forEach(el=>{
+    el.classList.add('hl');
+    el.classList.add('hl-anim');               // animate on appear
+    el.querySelectorAll('*').forEach(ch=>{
+      ch.classList.add('hl');
+      ch.classList.add('hl-anim');
+    });
+  });
+  highlightedNodes = nodes;
+  currentHighlight = code;
+  console.log(`[map] highlight: ${code} (${st.name}) — highlighted ${nodes.length} node(s)`);
+}
+
+// Click to answer in easy mode
+function attachMapClick(){
+  if(!svgRoot) return;
+  const clone = svgRoot.cloneNode(true);
+  svgRoot.replaceWith(clone);
+  svgRoot = clone;
+
+  svgRoot.addEventListener('click', e=>{
+    if(!currentHighlight) return;
+    if(modeSel.value!=='easy') return;
+    const path = e.target;
+    const inside = highlightedNodes.some(n => n.contains(path) || n === path);
+    if(inside){
+      const st = byCode[currentHighlight];
+      handlePick(st.name, st.name);
+    }
+  });
+}
+
+/* ---------------------------
+   Deck Management
+----------------------------*/
+function makeFullDeck(){
+  deck = shuffle(STATES.map(s=>s.code));
+  idx = 0; score = 0; answered.clear(); wrongOnly = false;
+  updateHeader();
+}
+function makeWrongOnlyDeck(){
+  const wrong = wrongCodes();
+  if(wrong.length===0) return;
+  deck = shuffle([...wrong]);
+  idx = 0; score = 0; answered.clear(); wrongOnly = true;
+  updateHeader();
+}
+function nextQuestion(){
+  if(idx < deck.length-1){ idx++; render(); }
+  else {
+    questionEl.textContent = `Done! Score: ${score}/${answeredCount()} ${percent()}%.`;
+    metaEl.textContent = wrongOnly ? 'Wrong-only mini-quiz complete.' : 'Quiz complete.';
+    choicesEl.innerHTML = ''; freeRow.classList.add('hide');
+    feedbackEl.textContent = ''; feedbackEl.classList.add('hide');
+    clearHighlight();
+    prevBtn.disabled = false; nextBtn.disabled = true;
+    updateHeader();
+  }
+}
+function prevQuestion(){ if(idx>0){ idx--; render(); } }
+
+/* ---------------------------
+   Answer helpers
+----------------------------*/
+function mcqOptionsPool(items, correct, n){
+  const pool = items.filter(v => v !== correct);
+  const picks = [];
+  const used = new Set();
+  while(picks.length < n){
+    const x = pool[Math.floor(Math.random()*pool.length)];
+    if(!used.has(x)){ picks.push(x); used.add(x); }
+  }
+  return shuffle([correct, ...picks]);
+}
+function normalize(s){
+  return s.normalize('NFD').replace(/\p{Diacritic}/gu,'').trim().toLowerCase().replace(/\s+/g,' ');
+}
+
+/* ---------------------------
+   Render per mode
+----------------------------*/
+function render(){
+  if(deck.length===0){ questionEl.textContent='No deck.'; return; }
+  updateHeader();
+  const code = deck[idx];
+  const st = byCode[code];
+  const mode = modeSel.value;
+
+  feedbackEl.textContent=''; feedbackEl.classList.add('hide');
+  choicesEl.innerHTML = '';
+  freeRow.classList.add('hide');
+  hintArea.textContent = '';
+
+  // Always highlight the current state
+  highlightState(code);
+
+  if(mode==='easy'){
+    metaEl.textContent = 'Which state is highlighted on the map?';
+    questionEl.textContent = 'Select the correct state:';
+    const opts = buildStateChoicesWithRegionalDecoys(st, 6); // NEW: 6 choices with regional decoys
+    choicesEl.className = 'choices cols-6';
+    opts.forEach(opt=>{
+      const b = document.createElement('button');
+      b.className = 'choice'; b.textContent = opt;
+      b.onclick = ()=>handlePick(opt, st.name);
+      const was = answered.get(code);
+      if(was){
+        b.disabled = true;
+        if(opt===st.name) b.classList.add('correct');
+        if(was.pick===opt && !was.correct) b.classList.add('wrong');
+      }
+      choicesEl.appendChild(b);
+    });
+  }
+  else if(mode==='intermediate'){
+    metaEl.textContent = 'Pick the correct capital (6 choices).';
+    questionEl.textContent = `What is the capital of ${st.name}?`;
+    const opts = buildCapitalChoicesWithDecoys(st, 6);
+    choicesEl.className = 'choices cols-6';
+    opts.forEach(opt=>{
+      const b = document.createElement('button');
+      b.className = 'choice'; b.textContent = opt;
+      b.onclick = ()=>handlePick(opt, st.capital);
+      const was = answered.get(code);
+      if(was){
+        b.disabled = true;
+        if(opt===st.capital) b.classList.add('correct');
+        if(was.pick===opt && !was.correct) b.classList.add('wrong');
+      }
+      choicesEl.appendChild(b);
+    });
+  }
+  else { // hard
+    metaEl.textContent = 'Type the correct capital (press Enter or click Check).';
+    questionEl.textContent = `What is the capital of ${st.name}?`;
+    freeRow.classList.remove('hide');
+    freeInput.value = '';
+    freeInput.focus();
+    checkBtn.onclick = ()=>{
+      const pickRaw = freeInput.value;
+      if(!pickRaw.trim()) return;
+      const right = st.capital;
+      const ok = normalize(pickRaw) === normalize(right);
+      registerAnswer(code, ok, pickRaw, right);
+    };
+
+    const was = answered.get(code);
+    if(was){
+      freeInput.value = was.pick || '';
+      freeInput.disabled = true;
+      checkBtn.disabled = true;
+      showFeedback(was.correct, st.capital);
+    } else {
+      freeInput.disabled = false;
+      checkBtn.disabled = false;
+    }
+  }
+
+  prevBtn.disabled = (idx===0);
+  nextBtn.textContent = (idx===deck.length-1) ? 'Finish' : 'Next';
+}
+
+/* ---------------------------
+   Builders for choices
+----------------------------*/
+// NEW: State-name options with 2 regional decoys + other states to reach total
+function buildStateChoicesWithRegionalDecoys(state, total){
+  const correct = state.name;
+  const used = new Set([correct]);
+  const decoys = [];
+
+  // 1) Two from the same region (if available)
+  const sameRegion = shuffle(STATES.filter(s=>s.region===state.region && s.name!==state.name).map(s=>s.name));
+  while(decoys.length < Math.min(2, total-1) && sameRegion.length){
+    const x = sameRegion.pop();
+    if(!used.has(x)){ decoys.push(x); used.add(x); }
+  }
+
+  // 2) Fill the rest with states from other regions
+  const others = shuffle(STATES.filter(s=>s.region!==state.region).map(s=>s.name));
+  while(decoys.length < (total-1) && others.length){
+    const x = others.pop();
+    if(!used.has(x)){ decoys.push(x); used.add(x); }
+  }
+
+  // 3) If still short (edge cases), backfill from any remaining states
+  if(decoys.length < (total-1)){
+    const any = shuffle(STATES.map(s=>s.name));
+    while(decoys.length < (total-1) && any.length){
+      const x = any.pop();
+      if(!used.has(x)) { decoys.push(x); used.add(x); }
+    }
+  }
+
+  return shuffle([correct, ...decoys]).slice(0,total);
+}
+
+// Existing: Capital options with in-state city decoys then other capitals
+function buildCapitalChoicesWithDecoys(state, total){
+  const ans = state.capital;
+  const decoys = [];
+  const used = new Set([ans]);
+
+  // 1) In-state city decoys
+  shuffle([...(state.cities||[])]).forEach(c=>{
+    if(decoys.length < Math.min(4, total-1) && !used.has(c)){
+      decoys.push(c); used.add(c);
+    }
+  });
+
+  // 2) Other states' capitals
+  const others = shuffle(capitalNames.filter(c=>!used.has(c)));
+  while(decoys.length < (total-1) && others.length){
+    const x = others.pop();
+    decoys.push(x); used.add(x);
+  }
+
+  return shuffle([ans, ...decoys]).slice(0,total);
+}
+
+function handlePick(pick, correctText){
+  const code = deck[idx];
+  if(answered.has(code)) return;
+  const isCorrect = pick === correctText;
+  answered.set(code, {correct:isCorrect, pick});
+  if(isCorrect) score++;
+  document.querySelectorAll('button.choice').forEach(b=>{
+    b.disabled = true;
+    if(b.textContent===correctText) b.classList.add('correct');
+    if(b.textContent===pick && !isCorrect) b.classList.add('wrong');
+  });
+  showFeedback(isCorrect, correctText);
+  updateHeader();
+}
+function registerAnswer(code, ok, pick, correctText){
+  if(answered.has(code)) return;
+  answered.set(code, {correct:ok, pick});
+  if(ok) score++;
+  showFeedback(ok, correctText);
+  updateHeader();
+}
+function showFeedback(isCorrect, correctText){
+  feedbackEl.textContent = isCorrect ? '✅ Correct!' : `❌ Incorrect. Correct answer: ${correctText}`;
+  feedbackEl.classList.remove('hide');
+}
+
+/* ---------------------------
+   Wrong review dialog
+----------------------------*/
+wrongBtn.onclick = ()=>{
+  buildWrongList();
+  if(typeof wrongDlg.showModal === 'function'){ wrongDlg.showModal(); }
+  else { wrongDlg.setAttribute('open','open'); }
+};
+closeWrong.onclick = ()=> wrongDlg.close();
+
+function buildWrongList(){
+  wrongList.innerHTML = '';
+  const wr = wrongCodes();
+  if(wr.length===0){
+    wrongList.innerHTML = '<p class="small">Nothing to review—nice!</p>';
+    return;
+  }
+  wr.forEach(code=>{
+    const st = byCode[code];
+    const res = answered.get(code);
+    const li = document.createElement('div');
+    li.className = 'row';
+    li.innerHTML = `
+      <h4>${st.name}</h4>
+      <p class="mine">Your answer: ${res.pick??'(blank)'}</p>
+      <p class="correct">Correct: ${st.capital}</p>
+    `;
+    const jump = document.createElement('button');
+    jump.className = 'btn jump';
+    jump.textContent = 'Jump to this question';
+    jump.onclick = ()=>{
+      const pos = deck.indexOf(code);
+      if(pos !== -1){ idx = pos; render(); wrongDlg.close(); }
+      else {
+        wrongDlg.close();
+        deck = shuffle([code, ...STATES.map(s=>s.code).filter(c=>c!==code)]);
+        idx = 0; score=0; answered.clear(); wrongOnly=false; render();
+      }
+    };
+    li.appendChild(jump);
+    wrongList.appendChild(li);
+  });
+}
+
+/* ---------------------------
+   Controls
+----------------------------*/
+prevBtn.onclick = prevQuestion;
+nextBtn.onclick = nextQuestion;
+restartBtn.onclick = ()=>{ makeFullDeck(); render(); };
+shuffleBtn.onclick = ()=>{ makeFullDeck(); render(); };
+retakeWrongBtn.onclick = ()=>{ makeWrongOnlyDeck(); render(); };
+modeSel.onchange = ()=>{ score=0; answered.clear(); idx=0; render(); };
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e)=>{
+  const mode = modeSel.value;
+  if(mode==='hard'){
+    if(e.key==='Enter'){ checkBtn.click(); }
+  } else {
+    const n = parseInt(e.key,10);
+    if(!isNaN(n) && n>=1 && n<=6){
+      const btn = choicesEl.querySelectorAll('button.choice')[n-1];
+      if(btn && !btn.disabled) btn.click();
+    }
+  }
+});
+
+/* ---------------------------
+   Start
+----------------------------*/
+(async function init(){
+  await loadSvgFromUrl();
+  makeFullDeck();
+  render();
+})();
+</script>
+</body>
+</html>
