@@ -15,5 +15,9 @@ Behind the scenes
 * the database includes regions so the multiple choice will include neighboring states
 * the database includes names of other cities in the same state as "decoy answers" (this makes is MUCH harder)
 
+## ⚙️ Settings
+* choose how many answer choices there will be for multiple choice mode (5-8; default 6)
+* choose to reveal the state capital when playing in states mode (easy); this is to help kids learn the state capitols as they learn states
+
 ## 🪪 License
-MIT License
+* MIT License
