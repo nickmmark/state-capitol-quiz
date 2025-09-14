@@ -19,5 +19,11 @@ Behind the scenes
 * choose how many answer choices there will be for multiple choice mode (5-8; default 6)
 * choose to reveal the state capital when playing in states mode (easy); this is to help kids learn the state capitols as they learn states
 
+## 🏗️ Construction
+* would be fun to make a version of this game for learning other countries geography
+
+## 🐜 Bugs/issues
+* it seems to have trouble cross loading the SVG file in iOS/Safari
+
 ## 🪪 License
 * MIT License
