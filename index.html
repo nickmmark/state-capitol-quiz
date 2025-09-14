@@ -34,9 +34,12 @@
   .meta{color:var(--muted);font-size:14px;margin-bottom:8px}
   .q{font-size:20px;line-height:1.35;margin:0 0 12px}
   .choices{display:grid;gap:10px}
-  .choices.cols-4{grid-template-columns:repeat(2,minmax(0,1fr))}
   .choices.cols-6{grid-template-columns:repeat(3,minmax(0,1fr))}
-  @media (max-width:520px){ .choices.cols-6{grid-template-columns:repeat(2,minmax(0,1fr))} }
+  .choices.cols-8{grid-template-columns:repeat(4,minmax(0,1fr))}
+  @media (max-width:520px){
+    .choices.cols-6{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .choices.cols-8{grid-template-columns:repeat(2,minmax(0,1fr))}
+  }
   button.choice{all:unset;display:block;border:1px solid var(--border);background:var(--card);padding:12px 14px;border-radius:10px;cursor:pointer}
   button.choice:hover{border-color:#cfd7ff;background:#f6f8ff}
   button.choice.correct{border-color:var(--ok);background:#f0fbf4}
@@ -60,8 +63,8 @@
 
   /* Highlighted state: blue fill, dark blue stroke; animate on appear */
   .hl, .hl * { fill: var(--mapHl) !important; stroke: var(--mapHlStroke) !important; stroke-width:4 !important; }
-  .hl-anim, .hl-anim * { 
-    transform-box: fill-box; 
+  .hl-anim, .hl-anim * {
+    transform-box: fill-box;
     transform-origin: center;
     animation: nudge .45s ease-out;
   }
@@ -79,7 +82,7 @@
       <div class="controls">
         <select id="mode" class="sel" title="Choose mode">
           <option value="easy">Easy — find the highlighted state</option>
-          <option value="intermediate">Intermediate — pick the capital (6 choices)</option>
+          <option value="intermediate">Intermediate — pick the capital</option>
           <option value="hard">Hard — type the capital</option>
         </select>
         <span class="pill" id="scorePill">Score: 0/0 0%</span>
@@ -100,7 +103,7 @@
         <div class="meta">Map</div>
         <div class="mapbox" id="mapbox">
           <div class="map-status small" id="mapStatus">Loading SVG map…</div>
-          <!-- SVG will be injected here -->
+          <!-- SVG injected here -->
         </div>
       </div>
 
@@ -130,13 +133,40 @@
       </div>
     </div>
 
+    <!-- Options -->
+    <details style="margin-top:14px">
+      <summary>⚙️ Options</summary>
+      <div class="card" style="margin-top:10px;display:grid;gap:12px">
+        <div>
+          <div class="small" style="margin-bottom:6px">Multiple-choice answers per question</div>
+          <select id="choiceCountSel" class="sel" title="Number of choices">
+            <option value="5">5</option>
+            <option value="6" selected>6 (default)</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+          </select>
+          <p class="small" style="margin-top:8px">
+            Applies to <strong>Easy</strong> (state names) and <strong>Intermediate</strong> (capitals). Keyboard shortcuts adapt to the chosen count.
+          </p>
+        </div>
+
+        <label style="display:flex;align-items:center;gap:8px">
+          <input type="checkbox" id="revealCapitalChk" />
+          <span>Show capital after answering in <strong>Easy</strong> mode</span>
+        </label>
+        <p class="small" style="margin:0">
+          Tip: Turn this on to learn capitals while playing Easy, then try Intermediate/Hard.
+        </p>
+      </div>
+    </details>
+
     <details style="margin-top:14px">
       <summary>ℹ️ Notes for teachers/parents</summary>
       <ul class="small" style="margin-top:6px">
-        <li>Modes: <strong>Easy</strong> (highlighted state → pick state), <strong>Intermediate</strong> (state → pick capital, 6 options), <strong>Hard</strong> (state → type capital).</li>
+        <li>Modes: <strong>Easy</strong> (highlighted state → pick state), <strong>Intermediate</strong> (state → pick capital), <strong>Hard</strong> (type capital).</li>
         <li>Score is shown as <em>correct / answered</em> with whole-number percent.</li>
         <li><strong>Wrong (n)</strong> shows missed questions; <strong>Retake Wrong Only</strong> makes a mini-deck from them.</li>
-        <li>Keyboard: in MCQ press <strong>1–6</strong> to choose; in Hard press <strong>Enter</strong> to submit.</li>
+        <li>Keyboard: press <strong>1…N</strong> to choose in MCQ (N = your selected choice count); press <strong>Enter</strong> in Hard mode.</li>
       </ul>
     </details>
   </div>
@@ -200,7 +230,7 @@ const STATES = [
   {code:"SD",name:"South Dakota",capital:"Pierre",region:"Midwest",cities:["Sioux Falls","Rapid City","Aberdeen"]},
   {code:"TN",name:"Tennessee",capital:"Nashville",region:"South",cities:["Memphis","Knoxville","Chattanooga","Clarksville"]},
   {code:"TX",name:"Texas",capital:"Austin",region:"South",cities:["Houston","Dallas","San Antonio","Fort Worth"]},
-  {code:"UT",name:"Utah",nameAlt:"Utah",capital:"Salt Lake City",region:"West",cities:["Provo","Orem","West Valley City","Ogden"]},
+  {code:"UT",name:"Utah",capital:"Salt Lake City",region:"West",cities:["Provo","Orem","West Valley City","Ogden"]},
   {code:"VT",name:"Vermont",capital:"Montpelier",region:"Northeast",cities:["Burlington","Rutland","South Burlington"]},
   {code:"VA",name:"Virginia",capital:"Richmond",region:"South",cities:["Virginia Beach","Norfolk","Arlington","Alexandria"]},
   {code:"WA",name:"Washington",capital:"Olympia",region:"West",cities:["Seattle","Spokane","Tacoma","Bellevue"]},
@@ -215,6 +245,8 @@ const capitalNames = STATES.map(s=>s.capital);
 
 // DOM refs
 const modeSel = document.getElementById('mode');
+const choiceCountSel = document.getElementById('choiceCountSel');
+const revealCapitalChk = document.getElementById('revealCapitalChk');
 const scorePill = document.getElementById('scorePill');
 const qnumEl = document.getElementById('qnum');
 const qcountEl = document.getElementById('qcount');
@@ -251,9 +283,12 @@ let wrongOnly = false;
 let svgRoot = null;
 let currentHighlight = null;
 let highlightedNodes = [];
+let MCQ_CHOICES = clamp(parseInt(localStorage.getItem('mcq_choices') || '6',10),5,8);
+let REVEAL_CAPITAL = localStorage.getItem('reveal_capital') === '1';
 
 // Utils
 function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
 function answeredCount(){ return answered.size; }
 function wrongCodes(){ return [...answered.entries()].filter(([c,res])=>!res.correct).map(([c])=>c); }
 function percent(){ const a=answeredCount(); return a? Math.floor((score/a)*100) : 0; }
@@ -269,8 +304,11 @@ function updateHeader(){
   retakeWrongBtn.disabled = w===0;
   setBadge();
 }
+function gridClassForChoices(n){
+  return n>=8 ? 'choices cols-8' : 'choices cols-6';
+}
 
-// Map load
+// Map load (use DOMParser for iOS/Safari)
 const SVG_URL = "https://upload.wikimedia.org/wikipedia/commons/1/1a/Blank_US_Map_%28states_only%29.svg";
 
 async function loadSvgFromUrl(){
@@ -289,28 +327,53 @@ async function loadSvgFromUrl(){
 }
 
 function injectSvg(svgText){
+  // Clear any previous SVG
   [...mapbox.querySelectorAll('svg')].forEach(n=>n.remove());
-  const wrap = document.createElement('div');
-  wrap.innerHTML = svgText.trim();
-  const svg = wrap.querySelector('svg');
-  if(!svg){ mapStatus.textContent = "Invalid SVG data."; return; }
 
+  // Parse as SVG document (fixes iOS/Safari namespace issues)
+  let svg;
+  try{
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(svgText, 'image/svg+xml');
+    svg = doc.documentElement;
+  } catch(e){
+    console.error("[map] DOMParser failed:", e);
+    const wrap = document.createElement('div'); // fallback
+    wrap.innerHTML = svgText.trim();
+    svg = wrap.querySelector('svg');
+  }
+  if(!svg || svg.tagName.toLowerCase() !== 'svg'){ mapStatus.textContent = "Invalid SVG data."; return; }
+
+  // Adopt node into current document before measuring
+  svg = document.importNode(svg, true);
   svg.removeAttribute('width');
   svg.removeAttribute('height');
   svg.setAttribute('id','usmap');
   mapbox.appendChild(svg);
-  try{
-    const bbox = svg.getBBox();
-    svg.setAttribute('viewBox', `${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`);
-  } catch(e){
-    console.warn("[map] getBBox failed, using existing viewBox if any.");
+
+  // Set viewBox/preserveAspectRatio safely
+  if(!svg.getAttribute('viewBox')){
+    try{
+      const bbox = svg.getBBox();
+      svg.setAttribute('viewBox', `${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`);
+    } catch(e){
+      console.warn("[map] getBBox failed; using default viewBox");
+      svg.setAttribute('viewBox', '0 0 959 593'); // fallback for this asset
+    }
   }
+  svg.setAttribute('preserveAspectRatio','xMidYMid meet');
   svg.style.maxWidth = '100%';
   svg.style.height = 'auto';
 
   svgRoot = svg;
 
-  // Resolve coverage
+  // INDEX STATES BEFORE removing <title> tooltips
+  indexStates(svgRoot);
+
+  // Remove <title> elements to suppress hover tooltips
+  svgRoot.querySelectorAll('title').forEach(t=>t.remove());
+
+  // Coverage diagnostics
   let found = 0;
   const missing = [];
   STATES.forEach(s=>{
@@ -325,36 +388,68 @@ function injectSvg(svgText){
   attachMapClick();
 }
 
+// Build data-code/data-name attributes from ids, inkscape labels, and <title> text
+function indexStates(svg){
+  const byName = new Map(STATES.map(s=>[s.name.toLowerCase(), s]));
+  let tagged = new Set();
+
+  function tag(el, st){
+    if(!el) return;
+    el.setAttribute('data-code', st.code);
+    el.setAttribute('data-name', st.name);
+    tagged.add(st.code);
+  }
+
+  // Pass 1: ID-based
+  STATES.forEach(st=>{
+    const ids = [`#${st.code}`, `#US-${st.code}`, `#us-${st.code.toLowerCase()}`];
+    for(const sel of ids){
+      const el = svg.querySelector(sel);
+      if(el){ tag(el, st); break; }
+    }
+  });
+
+  // Pass 2: inkscape labels
+  svg.querySelectorAll('[inkscape\\:label]').forEach(el=>{
+    const nm = (el.getAttribute('inkscape:label')||'').trim().toLowerCase();
+    const st = byName.get(nm);
+    if(st){ tag(el, st); }
+  });
+
+  // Pass 3: <title> tags (often on the state group)
+  svg.querySelectorAll('title').forEach(t=>{
+    const nm = (t.textContent||'').trim().toLowerCase();
+    const st = byName.get(nm);
+    if(st){
+      let el = t.parentElement;
+      tag(el, st);
+    }
+  });
+
+  console.log(`[map] Indexed states via attributes: ${tagged.size}/50`);
+}
+
 // Matching helpers
 function findStateNodes(code, name){
   if(!svgRoot) return [];
   const results = new Set();
 
-  const idCandidates = [
-    `#${CSS.escape(code)}`,
-    `#US-${CSS.escape(code)}`,
-    `#us-${CSS.escape(code.toLowerCase())}`
-  ];
+  // ID candidates (kept for robustness)
+  const idCandidates = [`#${CSS.escape(code)}`, `#US-${CSS.escape(code)}`, `#us-${CSS.escape(code.toLowerCase())}`];
   for(const sel of idCandidates){
     const el = svgRoot.querySelector(sel);
     if(el) results.add(el);
   }
 
-  const dataCode = svgRoot.querySelector(`[data-code="${code}"]`);
-  if(dataCode) results.add(dataCode);
+  // Attributes we stamped during indexing
+  const byCodeAttr = svgRoot.querySelectorAll(`[data-code="${code}"]`);
+  byCodeAttr.forEach(el=>results.add(el));
+  const byNameAttr = svgRoot.querySelectorAll(`[data-name="${cssEq(name)}"]`);
+  byNameAttr.forEach(el=>results.add(el));
 
-  const nameSelectors = [
-    `[inkscape\\:label="${cssEq(name)}"]`,
-    `[data-name="${cssEq(name)}"]`
-  ];
-  for(const sel of nameSelectors){
-    svgRoot.querySelectorAll(sel).forEach(el=>results.add(el));
-  }
-
-  svgRoot.querySelectorAll('title').forEach(t=>{
-    const txt = (t.textContent||'').trim().toLowerCase();
-    if(txt === name.toLowerCase() && t.parentElement){ results.add(t.parentElement); }
-  });
+  // Also consider inkscape label if present
+  const byLabel = svgRoot.querySelectorAll(`[inkscape\\:label="${cssEq(name)}"]`);
+  byLabel.forEach(el=>results.add(el));
 
   return [...results];
 }
@@ -380,7 +475,7 @@ function highlightState(code){
   }
   nodes.forEach(el=>{
     el.classList.add('hl');
-    el.classList.add('hl-anim');               // animate on appear
+    el.classList.add('hl-anim');
     el.querySelectorAll('*').forEach(ch=>{
       ch.classList.add('hl');
       ch.classList.add('hl-anim');
@@ -475,10 +570,10 @@ function render(){
   highlightState(code);
 
   if(mode==='easy'){
-    metaEl.textContent = 'Which state is highlighted on the map?';
+    metaEl.textContent = `Which state is highlighted on the map? (${MCQ_CHOICES} choices)`;
     questionEl.textContent = 'Select the correct state:';
-    const opts = buildStateChoicesWithRegionalDecoys(st, 6); // NEW: 6 choices with regional decoys
-    choicesEl.className = 'choices cols-6';
+    const opts = buildStateChoicesWithRegionalDecoys(st, MCQ_CHOICES);
+    choicesEl.className = gridClassForChoices(MCQ_CHOICES);
     opts.forEach(opt=>{
       const b = document.createElement('button');
       b.className = 'choice'; b.textContent = opt;
@@ -491,24 +586,20 @@ function render(){
       }
       choicesEl.appendChild(b);
     });
+
+    // If already answered, show feedback again (with optional capital reveal)
+    const was = answered.get(code);
+    if(was){
+      const extra = REVEAL_CAPITAL ? `Capital: ${st.capital}` : null;
+      showFeedback(was.correct, st.name, extra);
+    }
   }
   else if(mode==='intermediate'){
-    metaEl.textContent = 'Pick the correct capital (6 choices).';
+    metaEl.textContent = `Pick the correct capital (${MCQ_CHOICES} choices).`;
     questionEl.textContent = `What is the capital of ${st.name}?`;
-    const opts = buildCapitalChoicesWithDecoys(st, 6);
-    choicesEl.className = 'choices cols-6';
-    opts.forEach(opt=>{
-      const b = document.createElement('button');
-      b.className = 'choice'; b.textContent = opt;
-      b.onclick = ()=>handlePick(opt, st.capital);
-      const was = answered.get(code);
-      if(was){
-        b.disabled = true;
-        if(opt===st.capital) b.classList.add('correct');
-        if(was.pick===opt && !was.correct) b.classList.add('wrong');
-      }
-      choicesEl.appendChild(b);
-    });
+    const opts = buildCapitalChoicesWithDecoys(st, MCQ_CHOICES);
+    choicesEl.className = gridClassForChoices(MCQ_CHOICES);
+    renderChoices(opts, st.capital);
   }
   else { // hard
     metaEl.textContent = 'Type the correct capital (press Enter or click Check).';
@@ -540,10 +631,25 @@ function render(){
   nextBtn.textContent = (idx===deck.length-1) ? 'Finish' : 'Next';
 }
 
+function renderChoices(opts, correctText){
+  choicesEl.innerHTML = '';
+  opts.forEach(opt=>{
+    const b = document.createElement('button');
+    b.className = 'choice'; b.textContent = opt;
+    b.onclick = ()=>handlePick(opt, correctText);
+    const was = answered.get(deck[idx]);
+    if(was){
+      b.disabled = true;
+      if(opt===correctText) b.classList.add('correct');
+      if(was.pick===opt && !was.correct) b.classList.add('wrong');
+    }
+    choicesEl.appendChild(b);
+  });
+}
+
 /* ---------------------------
    Builders for choices
 ----------------------------*/
-// NEW: State-name options with 2 regional decoys + other states to reach total
 function buildStateChoicesWithRegionalDecoys(state, total){
   const correct = state.name;
   const used = new Set([correct]);
@@ -575,7 +681,6 @@ function buildStateChoicesWithRegionalDecoys(state, total){
   return shuffle([correct, ...decoys]).slice(0,total);
 }
 
-// Existing: Capital options with in-state city decoys then other capitals
 function buildCapitalChoicesWithDecoys(state, total){
   const ans = state.capital;
   const decoys = [];
@@ -598,18 +703,26 @@ function buildCapitalChoicesWithDecoys(state, total){
   return shuffle([ans, ...decoys]).slice(0,total);
 }
 
+/* ---------------------------
+   Answer + feedback
+----------------------------*/
 function handlePick(pick, correctText){
   const code = deck[idx];
+  const st = byCode[code];
   if(answered.has(code)) return;
   const isCorrect = pick === correctText;
   answered.set(code, {correct:isCorrect, pick});
   if(isCorrect) score++;
+
   document.querySelectorAll('button.choice').forEach(b=>{
     b.disabled = true;
     if(b.textContent===correctText) b.classList.add('correct');
     if(b.textContent===pick && !isCorrect) b.classList.add('wrong');
   });
-  showFeedback(isCorrect, correctText);
+
+  // Extra line with capital (Easy mode only, if enabled)
+  const extra = (modeSel.value==='easy' && REVEAL_CAPITAL) ? `Capital: ${st.capital}` : null;
+  showFeedback(isCorrect, correctText, extra);
   updateHeader();
 }
 function registerAnswer(code, ok, pick, correctText){
@@ -619,8 +732,10 @@ function registerAnswer(code, ok, pick, correctText){
   showFeedback(ok, correctText);
   updateHeader();
 }
-function showFeedback(isCorrect, correctText){
-  feedbackEl.textContent = isCorrect ? '✅ Correct!' : `❌ Incorrect. Correct answer: ${correctText}`;
+function showFeedback(isCorrect, correctText, extraLine=null){
+  feedbackEl.innerHTML = isCorrect
+    ? `✅ Correct!${extraLine ? `<br><span class="small">${extraLine}</span>` : ''}`
+    : `❌ Incorrect. Correct answer: ${correctText}${extraLine ? `<br><span class="small">${extraLine}</span>` : ''}`;
   feedbackEl.classList.remove('hide');
 }
 
@@ -669,7 +784,7 @@ function buildWrongList(){
 }
 
 /* ---------------------------
-   Controls
+   Controls & keyboard
 ----------------------------*/
 prevBtn.onclick = prevQuestion;
 nextBtn.onclick = nextQuestion;
@@ -678,14 +793,30 @@ shuffleBtn.onclick = ()=>{ makeFullDeck(); render(); };
 retakeWrongBtn.onclick = ()=>{ makeWrongOnlyDeck(); render(); };
 modeSel.onchange = ()=>{ score=0; answered.clear(); idx=0; render(); };
 
-// Keyboard shortcuts
+// Options: choice count
+choiceCountSel.value = String(MCQ_CHOICES);
+choiceCountSel.onchange = ()=>{
+  MCQ_CHOICES = clamp(parseInt(choiceCountSel.value,10),5,8);
+  localStorage.setItem('mcq_choices', String(MCQ_CHOICES));
+  render();
+};
+
+// Options: reveal capital in Easy mode
+revealCapitalChk.checked = REVEAL_CAPITAL;
+revealCapitalChk.onchange = ()=>{
+  REVEAL_CAPITAL = revealCapitalChk.checked;
+  localStorage.setItem('reveal_capital', REVEAL_CAPITAL ? '1' : '0');
+  render(); // refresh feedback visibility if already answered
+};
+
+// Keyboard shortcuts adapt to MCQ_CHOICES
 document.addEventListener('keydown', (e)=>{
   const mode = modeSel.value;
   if(mode==='hard'){
     if(e.key==='Enter'){ checkBtn.click(); }
   } else {
     const n = parseInt(e.key,10);
-    if(!isNaN(n) && n>=1 && n<=6){
+    if(!isNaN(n) && n>=1 && n<=MCQ_CHOICES){
       const btn = choicesEl.querySelectorAll('button.choice')[n-1];
       if(btn && !btn.disabled) btn.click();
     }
