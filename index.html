@@ -63,16 +63,12 @@
 
   /* Highlighted state: blue fill, dark blue stroke; animate on appear */
   .hl, .hl * { fill: var(--mapHl) !important; stroke: var(--mapHlStroke) !important; stroke-width:4 !important; }
-  .hl-anim, .hl-anim * {
-    transform-box: fill-box;
-    transform-origin: center;
-    animation: nudge .45s ease-out;
-  }
-  @keyframes nudge {
-    0%   { transform: translate(0,0) scale(1); }
-    35%  { transform: translate(0,-4px) scale(1.02); }
-    100% { transform: translate(0,0) scale(1); }
-  }
+  .hl-anim, .hl-anim * { transform-box: fill-box; transform-origin: center; animation: nudge .45s ease-out; }
+  @keyframes nudge { 0%{transform:translate(0,0) scale(1)} 35%{transform:translate(0,-4px) scale(1.02)} 100%{transform:translate(0,0) scale(1)} }
+
+  /* Flag */
+  .flag-wrap{margin-top:8px;display:flex;align-items:center;gap:10px}
+  .flag-wrap img{max-width:240px;width:100%;height:auto;border:1px solid var(--border);border-radius:8px;box-shadow:0 1px 0 rgba(0,0,0,.04)}
 </style>
 </head>
 <body>
@@ -98,24 +94,19 @@
     <div class="progress"><div class="bar" id="bar"></div></div>
 
     <div class="grid">
-      <!-- Map / Asset -->
       <div class="card">
         <div class="meta">Map</div>
         <div class="mapbox" id="mapbox">
           <div class="map-status small" id="mapStatus">Loading SVG map…</div>
-          <!-- SVG injected here -->
         </div>
       </div>
 
-      <!-- Quiz area -->
       <div class="card">
         <div class="meta" id="meta">Pick the correct answer.</div>
         <p class="q" id="question">Loading…</p>
 
-        <!-- Multiple choice container -->
         <div class="choices" id="choices"></div>
 
-        <!-- Free response container (hard mode) -->
         <div id="freeRow" class="answer-row hide" style="margin-top:8px">
           <input type="text" id="freeInput" placeholder="Type the capital…" autocomplete="off" />
           <button class="btn primary" id="checkBtn">Check</button>
@@ -146,7 +137,7 @@
             <option value="8">8</option>
           </select>
           <p class="small" style="margin-top:8px">
-            Applies to <strong>Easy</strong> (state names) and <strong>Intermediate</strong> (capitals). Keyboard shortcuts adapt to the chosen count.
+            Applies to <strong>Easy</strong> and <strong>Intermediate</strong>. Keyboard shortcuts adapt to the chosen count.
           </p>
         </div>
 
@@ -154,8 +145,13 @@
           <input type="checkbox" id="revealCapitalChk" />
           <span>Show capital after answering in <strong>Easy</strong> mode</span>
         </label>
+
+        <label style="display:flex;align-items:center;gap:8px">
+          <input type="checkbox" id="showFlagChk" />
+          <span>Show state flag after answering (all modes)</span>
+        </label>
         <p class="small" style="margin:0">
-          Tip: Turn this on to learn capitals while playing Easy, then try Intermediate/Hard.
+          Flags are fetched from Wikimedia Commons.
         </p>
       </div>
     </details>
@@ -166,7 +162,7 @@
         <li>Modes: <strong>Easy</strong> (highlighted state → pick state), <strong>Intermediate</strong> (state → pick capital), <strong>Hard</strong> (type capital).</li>
         <li>Score is shown as <em>correct / answered</em> with whole-number percent.</li>
         <li><strong>Wrong (n)</strong> shows missed questions; <strong>Retake Wrong Only</strong> makes a mini-deck from them.</li>
-        <li>Keyboard: press <strong>1…N</strong> to choose in MCQ (N = your selected choice count); press <strong>Enter</strong> in Hard mode.</li>
+        <li>Keyboard: press <strong>1…N</strong> to choose in MCQ; press <strong>Enter</strong> in Hard mode.</li>
       </ul>
     </details>
   </div>
@@ -247,6 +243,7 @@ const capitalNames = STATES.map(s=>s.capital);
 const modeSel = document.getElementById('mode');
 const choiceCountSel = document.getElementById('choiceCountSel');
 const revealCapitalChk = document.getElementById('revealCapitalChk');
+const showFlagChk = document.getElementById('showFlagChk');
 const scorePill = document.getElementById('scorePill');
 const qnumEl = document.getElementById('qnum');
 const qcountEl = document.getElementById('qcount');
@@ -285,6 +282,7 @@ let currentHighlight = null;
 let highlightedNodes = [];
 let MCQ_CHOICES = clamp(parseInt(localStorage.getItem('mcq_choices') || '6',10),5,8);
 let REVEAL_CAPITAL = localStorage.getItem('reveal_capital') === '1';
+let SHOW_FLAG = localStorage.getItem('show_flag') === '1';
 
 // Utils
 function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
@@ -304,9 +302,7 @@ function updateHeader(){
   retakeWrongBtn.disabled = w===0;
   setBadge();
 }
-function gridClassForChoices(n){
-  return n>=8 ? 'choices cols-8' : 'choices cols-6';
-}
+function gridClassForChoices(n){ return n>=8 ? 'choices cols-8' : 'choices cols-6'; }
 
 // Map load (use DOMParser for iOS/Safari)
 const SVG_URL = "https://upload.wikimedia.org/wikipedia/commons/1/1a/Blank_US_Map_%28states_only%29.svg";
@@ -327,10 +323,8 @@ async function loadSvgFromUrl(){
 }
 
 function injectSvg(svgText){
-  // Clear any previous SVG
   [...mapbox.querySelectorAll('svg')].forEach(n=>n.remove());
 
-  // Parse as SVG document (fixes iOS/Safari namespace issues)
   let svg;
   try{
     const parser = new DOMParser();
@@ -338,27 +332,25 @@ function injectSvg(svgText){
     svg = doc.documentElement;
   } catch(e){
     console.error("[map] DOMParser failed:", e);
-    const wrap = document.createElement('div'); // fallback
+    const wrap = document.createElement('div');
     wrap.innerHTML = svgText.trim();
     svg = wrap.querySelector('svg');
   }
   if(!svg || svg.tagName.toLowerCase() !== 'svg'){ mapStatus.textContent = "Invalid SVG data."; return; }
 
-  // Adopt node into current document before measuring
   svg = document.importNode(svg, true);
   svg.removeAttribute('width');
   svg.removeAttribute('height');
   svg.setAttribute('id','usmap');
   mapbox.appendChild(svg);
 
-  // Set viewBox/preserveAspectRatio safely
   if(!svg.getAttribute('viewBox')){
     try{
       const bbox = svg.getBBox();
       svg.setAttribute('viewBox', `${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`);
     } catch(e){
       console.warn("[map] getBBox failed; using default viewBox");
-      svg.setAttribute('viewBox', '0 0 959 593'); // fallback for this asset
+      svg.setAttribute('viewBox', '0 0 959 593');
     }
   }
   svg.setAttribute('preserveAspectRatio','xMidYMid meet');
@@ -367,19 +359,14 @@ function injectSvg(svgText){
 
   svgRoot = svg;
 
-  // INDEX STATES BEFORE removing <title> tooltips
   indexStates(svgRoot);
-
-  // Remove <title> elements to suppress hover tooltips
   svgRoot.querySelectorAll('title').forEach(t=>t.remove());
 
-  // Coverage diagnostics
   let found = 0;
   const missing = [];
   STATES.forEach(s=>{
     const nodes = findStateNodes(s.code, s.name);
-    if(nodes.length){ found++; }
-    else { missing.push(`${s.code}:${s.name}`); }
+    if(nodes.length){ found++; } else { missing.push(`${s.code}:${s.name}`); }
   });
   console.log(`[map] Resolved ${found}/50 states. Missing:`, missing);
   mapStatus.textContent = found >= 45 ? "Map loaded ✅" : `Map loaded (${found}/50 matched — see console)`;
@@ -400,7 +387,6 @@ function indexStates(svg){
     tagged.add(st.code);
   }
 
-  // Pass 1: ID-based
   STATES.forEach(st=>{
     const ids = [`#${st.code}`, `#US-${st.code}`, `#us-${st.code.toLowerCase()}`];
     for(const sel of ids){
@@ -409,21 +395,16 @@ function indexStates(svg){
     }
   });
 
-  // Pass 2: inkscape labels
   svg.querySelectorAll('[inkscape\\:label]').forEach(el=>{
     const nm = (el.getAttribute('inkscape:label')||'').trim().toLowerCase();
     const st = byName.get(nm);
     if(st){ tag(el, st); }
   });
 
-  // Pass 3: <title> tags (often on the state group)
   svg.querySelectorAll('title').forEach(t=>{
     const nm = (t.textContent||'').trim().toLowerCase();
     const st = byName.get(nm);
-    if(st){
-      let el = t.parentElement;
-      tag(el, st);
-    }
+    if(st){ tag(t.parentElement, st); }
   });
 
   console.log(`[map] Indexed states via attributes: ${tagged.size}/50`);
@@ -433,24 +414,14 @@ function indexStates(svg){
 function findStateNodes(code, name){
   if(!svgRoot) return [];
   const results = new Set();
-
-  // ID candidates (kept for robustness)
   const idCandidates = [`#${CSS.escape(code)}`, `#US-${CSS.escape(code)}`, `#us-${CSS.escape(code.toLowerCase())}`];
   for(const sel of idCandidates){
     const el = svgRoot.querySelector(sel);
     if(el) results.add(el);
   }
-
-  // Attributes we stamped during indexing
-  const byCodeAttr = svgRoot.querySelectorAll(`[data-code="${code}"]`);
-  byCodeAttr.forEach(el=>results.add(el));
-  const byNameAttr = svgRoot.querySelectorAll(`[data-name="${cssEq(name)}"]`);
-  byNameAttr.forEach(el=>results.add(el));
-
-  // Also consider inkscape label if present
-  const byLabel = svgRoot.querySelectorAll(`[inkscape\\:label="${cssEq(name)}"]`);
-  byLabel.forEach(el=>results.add(el));
-
+  svgRoot.querySelectorAll(`[data-code="${code}"]`).forEach(el=>results.add(el));
+  svgRoot.querySelectorAll(`[data-name="${cssEq(name)}"]`).forEach(el=>results.add(el));
+  svgRoot.querySelectorAll(`[inkscape\\:label="${cssEq(name)}"]`).forEach(el=>results.add(el));
   return [...results];
 }
 function cssEq(s){ return s.replace(/"/g,'\\"'); }
@@ -458,8 +429,7 @@ function cssEq(s){ return s.replace(/"/g,'\\"'); }
 function clearHighlight(){
   if(!svgRoot) return;
   svgRoot.querySelectorAll('.hl').forEach(n=>{
-    n.classList.remove('hl');
-    n.classList.remove('hl-anim');
+    n.classList.remove('hl','hl-anim');
   });
   highlightedNodes = [];
   currentHighlight = null;
@@ -474,12 +444,8 @@ function highlightState(code){
     return;
   }
   nodes.forEach(el=>{
-    el.classList.add('hl');
-    el.classList.add('hl-anim');
-    el.querySelectorAll('*').forEach(ch=>{
-      ch.classList.add('hl');
-      ch.classList.add('hl-anim');
-    });
+    el.classList.add('hl','hl-anim');
+    el.querySelectorAll('*').forEach(ch=>ch.classList.add('hl','hl-anim'));
   });
   highlightedNodes = nodes;
   currentHighlight = code;
@@ -508,18 +474,8 @@ function attachMapClick(){
 /* ---------------------------
    Deck Management
 ----------------------------*/
-function makeFullDeck(){
-  deck = shuffle(STATES.map(s=>s.code));
-  idx = 0; score = 0; answered.clear(); wrongOnly = false;
-  updateHeader();
-}
-function makeWrongOnlyDeck(){
-  const wrong = wrongCodes();
-  if(wrong.length===0) return;
-  deck = shuffle([...wrong]);
-  idx = 0; score = 0; answered.clear(); wrongOnly = true;
-  updateHeader();
-}
+function makeFullDeck(){ deck = shuffle(STATES.map(s=>s.code)); idx = 0; score = 0; answered.clear(); wrongOnly = false; updateHeader(); }
+function makeWrongOnlyDeck(){ const wrong = wrongCodes(); if(!wrong.length) return; deck = shuffle([...wrong]); idx = 0; score = 0; answered.clear(); wrongOnly = true; updateHeader(); }
 function nextQuestion(){
   if(idx < deck.length-1){ idx++; render(); }
   else {
@@ -527,9 +483,7 @@ function nextQuestion(){
     metaEl.textContent = wrongOnly ? 'Wrong-only mini-quiz complete.' : 'Quiz complete.';
     choicesEl.innerHTML = ''; freeRow.classList.add('hide');
     feedbackEl.textContent = ''; feedbackEl.classList.add('hide');
-    clearHighlight();
-    prevBtn.disabled = false; nextBtn.disabled = true;
-    updateHeader();
+    clearHighlight(); prevBtn.disabled = false; nextBtn.disabled = true; updateHeader();
   }
 }
 function prevQuestion(){ if(idx>0){ idx--; render(); } }
@@ -539,16 +493,39 @@ function prevQuestion(){ if(idx>0){ idx--; render(); } }
 ----------------------------*/
 function mcqOptionsPool(items, correct, n){
   const pool = items.filter(v => v !== correct);
-  const picks = [];
-  const used = new Set();
+  const picks = []; const used = new Set();
   while(picks.length < n){
     const x = pool[Math.floor(Math.random()*pool.length)];
     if(!used.has(x)){ picks.push(x); used.add(x); }
   }
   return shuffle([correct, ...picks]);
 }
-function normalize(s){
-  return s.normalize('NFD').replace(/\p{Diacritic}/gu,'').trim().toLowerCase().replace(/\s+/g,' ');
+function normalize(s){ return s.normalize('NFD').replace(/\p{Diacritic}/gu,'').trim().toLowerCase().replace(/\s+/g,' '); }
+
+/* ---------------------------
+   Flags helper
+----------------------------*/
+const FLAG_EXCEPTIONS = new Map([
+  ["Georgia","Flag of Georgia (U.S. state).svg"],
+]);
+function flagFileName(stateName){
+  if(FLAG_EXCEPTIONS.has(stateName)) return FLAG_EXCEPTIONS.get(stateName);
+  return `Flag of ${stateName}.svg`;
+}
+function flagUrl(stateName, width=320){
+  const file = flagFileName(stateName);
+  return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(file)}?width=${width}`;
+}
+function buildExtraInfo(stateObj, mode){
+  const lines = [];
+  if(mode==='easy' && REVEAL_CAPITAL){
+    lines.push(`<div class="small">Capital: ${stateObj.capital}</div>`);
+  }
+  if(SHOW_FLAG){
+    const url = flagUrl(stateObj.name, 360);
+    lines.push(`<div class="flag-wrap"><img src="${url}" alt="Flag of ${stateObj.name}" loading="lazy"></div>`);
+  }
+  return lines.join("");
 }
 
 /* ---------------------------
@@ -566,7 +543,6 @@ function render(){
   freeRow.classList.add('hide');
   hintArea.textContent = '';
 
-  // Always highlight the current state
   highlightState(code);
 
   if(mode==='easy'){
@@ -579,18 +555,12 @@ function render(){
       b.className = 'choice'; b.textContent = opt;
       b.onclick = ()=>handlePick(opt, st.name);
       const was = answered.get(code);
-      if(was){
-        b.disabled = true;
-        if(opt===st.name) b.classList.add('correct');
-        if(was.pick===opt && !was.correct) b.classList.add('wrong');
-      }
+      if(was){ b.disabled = true; if(opt===st.name) b.classList.add('correct'); if(was.pick===opt && !was.correct) b.classList.add('wrong'); }
       choicesEl.appendChild(b);
     });
-
-    // If already answered, show feedback again (with optional capital reveal)
     const was = answered.get(code);
     if(was){
-      const extra = REVEAL_CAPITAL ? `Capital: ${st.capital}` : null;
+      const extra = buildExtraInfo(st, 'easy');
       showFeedback(was.correct, st.name, extra);
     }
   }
@@ -600,6 +570,11 @@ function render(){
     const opts = buildCapitalChoicesWithDecoys(st, MCQ_CHOICES);
     choicesEl.className = gridClassForChoices(MCQ_CHOICES);
     renderChoices(opts, st.capital);
+    const was = answered.get(code);
+    if(was){
+      const extra = buildExtraInfo(st, 'intermediate');
+      showFeedback(was.correct, st.capital, extra);
+    }
   }
   else { // hard
     metaEl.textContent = 'Type the correct capital (press Enter or click Check).';
@@ -614,13 +589,13 @@ function render(){
       const ok = normalize(pickRaw) === normalize(right);
       registerAnswer(code, ok, pickRaw, right);
     };
-
     const was = answered.get(code);
     if(was){
       freeInput.value = was.pick || '';
       freeInput.disabled = true;
       checkBtn.disabled = true;
-      showFeedback(was.correct, st.capital);
+      const extra = buildExtraInfo(st, 'hard');
+      showFeedback(was.correct, st.capital, extra);
     } else {
       freeInput.disabled = false;
       checkBtn.disabled = false;
@@ -655,21 +630,18 @@ function buildStateChoicesWithRegionalDecoys(state, total){
   const used = new Set([correct]);
   const decoys = [];
 
-  // 1) Two from the same region (if available)
   const sameRegion = shuffle(STATES.filter(s=>s.region===state.region && s.name!==state.name).map(s=>s.name));
   while(decoys.length < Math.min(2, total-1) && sameRegion.length){
     const x = sameRegion.pop();
     if(!used.has(x)){ decoys.push(x); used.add(x); }
   }
 
-  // 2) Fill the rest with states from other regions
   const others = shuffle(STATES.filter(s=>s.region!==state.region).map(s=>s.name));
   while(decoys.length < (total-1) && others.length){
     const x = others.pop();
     if(!used.has(x)){ decoys.push(x); used.add(x); }
   }
 
-  // 3) If still short (edge cases), backfill from any remaining states
   if(decoys.length < (total-1)){
     const any = shuffle(STATES.map(s=>s.name));
     while(decoys.length < (total-1) && any.length){
@@ -677,7 +649,6 @@ function buildStateChoicesWithRegionalDecoys(state, total){
       if(!used.has(x)) { decoys.push(x); used.add(x); }
     }
   }
-
   return shuffle([correct, ...decoys]).slice(0,total);
 }
 
@@ -686,20 +657,17 @@ function buildCapitalChoicesWithDecoys(state, total){
   const decoys = [];
   const used = new Set([ans]);
 
-  // 1) In-state city decoys
   shuffle([...(state.cities||[])]).forEach(c=>{
     if(decoys.length < Math.min(4, total-1) && !used.has(c)){
       decoys.push(c); used.add(c);
     }
   });
 
-  // 2) Other states' capitals
   const others = shuffle(capitalNames.filter(c=>!used.has(c)));
   while(decoys.length < (total-1) && others.length){
     const x = others.pop();
     decoys.push(x); used.add(x);
   }
-
   return shuffle([ans, ...decoys]).slice(0,total);
 }
 
@@ -720,22 +688,24 @@ function handlePick(pick, correctText){
     if(b.textContent===pick && !isCorrect) b.classList.add('wrong');
   });
 
-  // Extra line with capital (Easy mode only, if enabled)
-  const extra = (modeSel.value==='easy' && REVEAL_CAPITAL) ? `Capital: ${st.capital}` : null;
+  const extra = buildExtraInfo(st, modeSel.value);
   showFeedback(isCorrect, correctText, extra);
   updateHeader();
 }
 function registerAnswer(code, ok, pick, correctText){
+  const st = byCode[code];
   if(answered.has(code)) return;
   answered.set(code, {correct:ok, pick});
   if(ok) score++;
-  showFeedback(ok, correctText);
+  const extra = buildExtraInfo(st, modeSel.value);
+  showFeedback(ok, correctText, extra);
   updateHeader();
 }
-function showFeedback(isCorrect, correctText, extraLine=null){
+
+function showFeedback(isCorrect, correctText, extraHTML=""){
   feedbackEl.innerHTML = isCorrect
-    ? `✅ Correct!${extraLine ? `<br><span class="small">${extraLine}</span>` : ''}`
-    : `❌ Incorrect. Correct answer: ${correctText}${extraLine ? `<br><span class="small">${extraLine}</span>` : ''}`;
+    ? `✅ Correct!${extraHTML ? `<div>${extraHTML}</div>` : ''}`
+    : `❌ Incorrect. Correct answer: ${correctText}${extraHTML ? `<div>${extraHTML}</div>` : ''}`;
   feedbackEl.classList.remove('hide');
 }
 
@@ -806,7 +776,15 @@ revealCapitalChk.checked = REVEAL_CAPITAL;
 revealCapitalChk.onchange = ()=>{
   REVEAL_CAPITAL = revealCapitalChk.checked;
   localStorage.setItem('reveal_capital', REVEAL_CAPITAL ? '1' : '0');
-  render(); // refresh feedback visibility if already answered
+  render();
+};
+
+// Options: show flag
+showFlagChk.checked = SHOW_FLAG;
+showFlagChk.onchange = ()=>{
+  SHOW_FLAG = showFlagChk.checked;
+  localStorage.setItem('show_flag', SHOW_FLAG ? '1' : '0');
+  render(); // refresh already-answered view to add/remove flag
 };
 
 // Keyboard shortcuts adapt to MCQ_CHOICES
