@@ -29,16 +29,20 @@
   @media (max-width:900px){ .grid{grid-template-columns:1fr} }
   .card{background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:0 1px 0 rgba(0,0,0,.04);padding:16px}
   .mapbox{position:relative;display:flex;align-items:center;justify-content:center;min-height:320px}
-  .mapbox svg{max-width:100%;height:auto}
+  .mapbox svg, .mapbox object{max-width:100%;width:100%;display:block}
+  /* default min-height so Safari never collapses before we size it */
+  .mapbox object{min-height:320px}
   .map-status{position:absolute;top:8px;left:8px;background:#fff;border:1px solid var(--border);padding:4px 8px;border-radius:8px}
   .meta{color:var(--muted);font-size:14px;margin-bottom:8px}
   .q{font-size:20px;line-height:1.35;margin:0 0 12px}
   .choices{display:grid;gap:10px}
   .choices.cols-6{grid-template-columns:repeat(3,minmax(0,1fr))}
   .choices.cols-8{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .choices.cols-9{grid-template-columns:repeat(3,minmax(0,1fr))}
   @media (max-width:520px){
     .choices.cols-6{grid-template-columns:repeat(2,minmax(0,1fr))}
     .choices.cols-8{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .choices.cols-9{grid-template-columns:repeat(2,minmax(0,1fr))}
   }
   button.choice{all:unset;display:block;border:1px solid var(--border);background:var(--card);padding:12px 14px;border-radius:10px;cursor:pointer}
   button.choice:hover{border-color:#cfd7ff;background:#f6f8ff}
@@ -49,7 +53,6 @@
   .feedback{font-size:18px;font-weight:700;margin-top:10px}
   .hide{display:none}
 
-  /* Wrong review dialog */
   dialog{border:none;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.15);padding:0;max-width:720px;width:min(92vw,720px)}
   .dlg-head{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--border);background:var(--card)}
   .dlg-body{padding:10px 16px 16px;background:var(--card);max-height:min(70vh,580px);overflow:auto}
@@ -66,7 +69,6 @@
   .hl-anim, .hl-anim * { transform-box: fill-box; transform-origin: center; animation: nudge .45s ease-out; }
   @keyframes nudge { 0%{transform:translate(0,0) scale(1)} 35%{transform:translate(0,-4px) scale(1.02)} 100%{transform:translate(0,0) scale(1)} }
 
-  /* Flag */
   .flag-wrap{margin-top:8px;display:flex;align-items:center;gap:10px}
   .flag-wrap img{max-width:240px;width:100%;height:auto;border:1px solid var(--border);border-radius:8px;box-shadow:0 1px 0 rgba(0,0,0,.04)}
 </style>
@@ -135,9 +137,10 @@
             <option value="6" selected>6 (default)</option>
             <option value="7">7</option>
             <option value="8">8</option>
+            <option value="9">9</option>
           </select>
           <p class="small" style="margin-top:8px">
-            Applies to <strong>Easy</strong> and <strong>Intermediate</strong>. Keyboard shortcuts adapt to the chosen count.
+            Applies to <strong>Easy</strong> and <strong>Intermediate</strong>. Keyboard shortcuts adapt to the chosen count (1–9).
           </p>
         </div>
 
@@ -150,9 +153,7 @@
           <input type="checkbox" id="showFlagChk" />
           <span>Show state flag after answering (all modes)</span>
         </label>
-        <p class="small" style="margin:0">
-          Flags are fetched from Wikimedia Commons.
-        </p>
+        <p class="small" style="margin:0">Flags are fetched from Wikimedia Commons.</p>
       </div>
     </details>
 
@@ -179,6 +180,29 @@
   </dialog>
 
 <script>
+/* --------------------------------------------
+   Polyfills & helpers (iOS/Safari)
+---------------------------------------------*/
+if (typeof CSS === "undefined") { window.CSS = {}; }
+if (typeof CSS.escape !== "function") {
+  CSS.escape = function(value) {
+    const str = String(value); const length = str.length; let result = "";
+    for (let i=0;i<length;i++){ const codeUnit=str.charCodeAt(i);
+      if(codeUnit===0x0000){ result+="\uFFFD"; continue; }
+      if((codeUnit>=0x0001 && codeUnit<=0x001F) || codeUnit===0x007F ||
+         (i===0 && codeUnit>=0x0030 && codeUnit<=0x0039) ||
+         (i===1 && codeUnit>=0x0030 && codeUnit<=0x0039 && str.charCodeAt(0)===0x002D)) {
+        result += "\\" + codeUnit.toString(16) + " "; continue;
+      }
+      if(codeUnit>=0x0080 || codeUnit===0x002D || codeUnit===0x005F ||
+         (codeUnit>=0x0030 && codeUnit<=0x0039) ||
+         (codeUnit>=0x0041 && codeUnit<=0x005A) ||
+         (codeUnit>=0x0061 && codeUnit<=0x007A)) { result += str.charAt(i); continue; }
+      result += "\\" + str.charAt(i);
+    } return result;
+  };
+}
+
 /* --------------------------------------------
    Data: States, Capitals, and In-State City Decoys
 ---------------------------------------------*/
@@ -236,7 +260,6 @@ const STATES = [
 ];
 
 const byCode = Object.fromEntries(STATES.map(s=>[s.code,s]));
-const stateNames = STATES.map(s=>s.name);
 const capitalNames = STATES.map(s=>s.capital);
 
 // DOM refs
@@ -280,7 +303,10 @@ let wrongOnly = false;
 let svgRoot = null;
 let currentHighlight = null;
 let highlightedNodes = [];
-let MCQ_CHOICES = clamp(parseInt(localStorage.getItem('mcq_choices') || '6',10),5,8);
+let svgObjectEl = null; // for <object> fallback
+
+/* Options persisted */
+let MCQ_CHOICES = clamp(parseInt(localStorage.getItem('mcq_choices') || '6',10),5,9);
 let REVEAL_CAPITAL = localStorage.getItem('reveal_capital') === '1';
 let SHOW_FLAG = localStorage.getItem('show_flag') === '1';
 
@@ -291,6 +317,7 @@ function answeredCount(){ return answered.size; }
 function wrongCodes(){ return [...answered.entries()].filter(([c,res])=>!res.correct).map(([c])=>c); }
 function percent(){ const a=answeredCount(); return a? Math.floor((score/a)*100) : 0; }
 function setBadge(){ deckBadge.classList.toggle('hide', !wrongOnly); }
+function normalize(s){ return s.normalize('NFD').replace(/\p{Diacritic}/gu,'').trim().toLowerCase().replace(/\s+/g,' '); }
 function updateHeader(){
   scorePill.textContent = `Score: ${score}/${answeredCount()} ${percent()}%`;
   qcountEl.textContent = deck.length;
@@ -302,178 +329,249 @@ function updateHeader(){
   retakeWrongBtn.disabled = w===0;
   setBadge();
 }
-function gridClassForChoices(n){ return n>=8 ? 'choices cols-8' : 'choices cols-6'; }
-
-// Map load (use DOMParser for iOS/Safari)
-const SVG_URL = "https://upload.wikimedia.org/wikipedia/commons/1/1a/Blank_US_Map_%28states_only%29.svg";
-
-async function loadSvgFromUrl(){
-  try{
-    console.log("[map] Fetching SVG from", SVG_URL);
-    const res = await fetch(SVG_URL, {mode:'cors'});
-    if(!res.ok) throw new Error(`HTTP ${res.status}`);
-    const text = await res.text();
-    injectSvg(text);
-    mapStatus.textContent = "Map loaded ✅";
-    setTimeout(()=>mapStatus.classList.add('hide'), 800);
-  } catch(e){
-    console.warn("[map] Auto-load failed:", e);
-    mapStatus.textContent = "Couldn’t load map.";
-  }
+function gridClassForChoices(n){
+  if(n>=9) return 'choices cols-9';
+  if(n>=8) return 'choices cols-8';
+  return 'choices cols-6';
 }
 
-function injectSvg(svgText){
-  [...mapbox.querySelectorAll('svg')].forEach(n=>n.remove());
+/* ---------------------------
+   Map loading (Safari-safe)
+----------------------------*/
+const SVG_URLS = [
+  "https://simplemaps.com/static/demos/resources/us.svg", // very compatible
+  "https://commons.wikimedia.org/wiki/Special:FilePath/Blank_US_Map_(states_only).svg",
+  "https://upload.wikimedia.org/wikipedia/commons/1/1a/Blank_US_Map_%28states_only%29.svg"
+];
 
-  let svg;
+async function loadSvgFromUrl(){
+  let lastErr = null;
+  for (const url of SVG_URLS){
+    try{
+      console.log("[map] Fetching SVG from", url);
+      const res = await fetch(url, { mode:'cors', cache:'no-store', headers:{ 'Accept':'image/svg+xml,*/*;q=0.8' }});
+      if(!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+
+      // A) Try inline first
+      const okInline = await tryInlineInject(text);
+      if(okInline){ mapStatus.textContent = "Map loaded ✅"; setTimeout(()=>mapStatus.classList.add('hide'), 800); return; }
+
+      // B) Fallback: <object> + explicit sizing (prevents zero-height in Safari)
+      const okObj = await tryObjectEmbed(text);
+      if(okObj){ mapStatus.textContent = "Map loaded ✅ (object)"; setTimeout(()=>mapStatus.classList.add('hide'), 800); return; }
+
+      throw new Error("Rendered 0 states via both strategies");
+    } catch(e){
+      console.warn("[map] Load/render failed for url:", url, e);
+      lastErr = e;
+    }
+  }
+  mapStatus.textContent = "Couldn’t load map.";
+  console.warn("[map] All attempts failed", lastErr);
+}
+
+async function tryInlineInject(svgText){
+  clearSvg();
+  let svg=null;
   try{
     const parser = new DOMParser();
     const doc = parser.parseFromString(svgText, 'image/svg+xml');
+    if (doc.getElementsByTagName('parsererror').length) throw new Error('parsererror');
     svg = doc.documentElement;
-  } catch(e){
-    console.error("[map] DOMParser failed:", e);
-    const wrap = document.createElement('div');
-    wrap.innerHTML = svgText.trim();
-    svg = wrap.querySelector('svg');
-  }
-  if(!svg || svg.tagName.toLowerCase() !== 'svg'){ mapStatus.textContent = "Invalid SVG data."; return; }
+  } catch(e){ console.warn("[map] DOMParser failed:", e); return false; }
 
-  svg = document.importNode(svg, true);
-  svg.removeAttribute('width');
-  svg.removeAttribute('height');
-  svg.setAttribute('id','usmap');
+  if(svg.ownerDocument !== document) svg = document.importNode(svg, true);
+  svg.setAttribute('xmlns','http://www.w3.org/2000/svg');
+  svg.setAttribute('xmlns:xlink','http://www.w3.org/1999/xlink');
+  svg.removeAttribute('width'); svg.removeAttribute('height');
+  svg.setAttribute('id','usmap-inline');
   mapbox.appendChild(svg);
 
   if(!svg.getAttribute('viewBox')){
-    try{
-      const bbox = svg.getBBox();
+    try{ await new Promise(r=>requestAnimationFrame(()=>r())); const bbox = svg.getBBox();
       svg.setAttribute('viewBox', `${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`);
-    } catch(e){
-      console.warn("[map] getBBox failed; using default viewBox");
-      svg.setAttribute('viewBox', '0 0 959 593');
-    }
+    }catch{ svg.setAttribute('viewBox','0 0 959 593'); }
   }
   svg.setAttribute('preserveAspectRatio','xMidYMid meet');
-  svg.style.maxWidth = '100%';
-  svg.style.height = 'auto';
+  svg.style.height='auto';
 
   svgRoot = svg;
-
   indexStates(svgRoot);
   svgRoot.querySelectorAll('title').forEach(t=>t.remove());
 
-  let found = 0;
-  const missing = [];
-  STATES.forEach(s=>{
-    const nodes = findStateNodes(s.code, s.name);
-    if(nodes.length){ found++; } else { missing.push(`${s.code}:${s.name}`); }
-  });
-  console.log(`[map] Resolved ${found}/50 states. Missing:`, missing);
-  mapStatus.textContent = found >= 45 ? "Map loaded ✅" : `Map loaded (${found}/50 matched — see console)`;
-  setTimeout(()=>mapStatus.classList.add('hide'), 1500);
-
+  let found=0; STATES.forEach(s=>{ const nodes=findStateNodes(s.code,s.name); if(nodes.length) found++; });
+  console.log(`[map] Inline resolved states: ${found}/50`);
   attachMapClick();
+  return found >= 40;
 }
 
-// Build data-code/data-name attributes from ids, inkscape labels, and <title> text
-function indexStates(svg){
-  const byName = new Map(STATES.map(s=>[s.name.toLowerCase(), s]));
-  let tagged = new Set();
-
-  function tag(el, st){
-    if(!el) return;
-    el.setAttribute('data-code', st.code);
-    el.setAttribute('data-name', st.name);
-    tagged.add(st.code);
+let resizeHandler = null;
+function setObjectHeightFromViewBox(){
+  if(!svgObjectEl || !svgObjectEl.contentDocument) return;
+  const innerSvg = svgObjectEl.contentDocument.documentElement;
+  if(!innerSvg) return;
+  // ratio from viewBox or fallback
+  let vw=959, vh=593;
+  const vb = innerSvg.getAttribute('viewBox');
+  if(vb){
+    const parts = vb.trim().split(/\s+/).map(Number);
+    if(parts.length===4 && parts.every(n=>!isNaN(n))){
+      vw = parts[2]; vh = parts[3];
+    }
   }
+  const ratio = vh / vw;
+  const width = mapbox.clientWidth || svgObjectEl.clientWidth || 800;
+  const height = Math.max(320, Math.round(width * ratio));
+  svgObjectEl.style.height = height + 'px';
+}
+
+async function tryObjectEmbed(svgText){
+  clearSvg();
+  const dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgText);
+  const obj = document.createElement('object');
+  obj.type = 'image/svg+xml';
+  obj.data = dataUrl;
+  obj.id = 'usmap-object';
+  obj.style.width = '100%';
+  obj.style.display = 'block';
+  obj.style.minHeight = '320px'; // prevents collapse before sizing
+  svgObjectEl = obj;
+  mapbox.appendChild(obj);
+
+  const loaded = await new Promise(resolve=>{
+    const to = setTimeout(()=>resolve(false), 7000);
+    obj.addEventListener('load', ()=>{ clearTimeout(to); resolve(true); });
+    obj.addEventListener('error', ()=>{ clearTimeout(to); resolve(false); });
+  });
+  if(!loaded){ console.warn('[map] <object> failed to load'); return false; }
+
+  const doc = obj.contentDocument; if(!doc){ console.warn('[map] No contentDocument'); return false; }
+  const svg = doc.documentElement; if(!svg || svg.nodeName.toLowerCase()!=='svg'){ console.warn('[map] contentDocument not SVG'); return false; }
+  svgRoot = svg;
+
+  // Remove hover tooltips
+  svgRoot.querySelectorAll('title').forEach(t=>t.remove());
+  indexStates(svgRoot);
+
+  let found=0; STATES.forEach(s=>{ const nodes=findStateNodes(s.code,s.name); if(nodes.length) found++; });
+  console.log(`[map] Object resolved states: ${found}/50`);
+  attachMapClick();
+  injectHighlightStylesIntoObject();
+
+  // ---- explicit height sizing for Safari ----
+  setObjectHeightFromViewBox();
+  if(resizeHandler) window.removeEventListener('resize', resizeHandler);
+  resizeHandler = ()=>setObjectHeightFromViewBox();
+  window.addEventListener('resize', resizeHandler);
+  // ------------------------------------------
+
+  return found >= 40;
+}
+
+function injectHighlightStylesIntoObject(){
+  if(!svgObjectEl || !svgObjectEl.contentDocument) return;
+  const doc = svgObjectEl.contentDocument;
+  const style = doc.createElement('style');
+  style.textContent = `
+    .hl, .hl * { fill: ${getComputedStyle(document.documentElement).getPropertyValue('--mapHl').trim() || '#bfdbfe'} !important;
+                 stroke: ${getComputedStyle(document.documentElement).getPropertyValue('--mapHlStroke').trim() || '#1e3a8a'} !important;
+                 stroke-width:4 !important; }
+    .hl-anim, .hl-anim * { transform-box: fill-box; transform-origin: center; animation: nudge .45s ease-out; }
+    @keyframes nudge { 0%{transform:translate(0,0) scale(1)} 35%{transform:translate(0,-4px) scale(1.02)} 100%{transform:translate(0,0) scale(1)} }
+  `;
+  doc.head.appendChild(style);
+}
+
+function clearSvg(){
+  if(resizeHandler){ window.removeEventListener('resize', resizeHandler); resizeHandler=null; }
+  svgRoot = null; currentHighlight = null; highlightedNodes = []; svgObjectEl = null;
+  [...mapbox.querySelectorAll('svg,object')].forEach(n=>n.remove());
+}
+
+/* --------------------------------------------
+   Map indexing & highlighting
+---------------------------------------------*/
+function indexStates(rootSvg){
+  const byName = new Map(STATES.map(s=>[s.name.toLowerCase(), s]));
+  function tag(el, st){ if(!el) return; try{ el.setAttribute('data-code', st.code); el.setAttribute('data-name', st.name); }catch{} }
 
   STATES.forEach(st=>{
-    const ids = [`#${st.code}`, `#US-${st.code}`, `#us-${st.code.toLowerCase()}`];
-    for(const sel of ids){
-      const el = svg.querySelector(sel);
-      if(el){ tag(el, st); break; }
-    }
+    const ids = [`#${st.code}`, `#US-${st.code}`, `#us-${st.code.toLowerCase()}`, `#state_${st.code.toLowerCase()}`, `#${st.name.replace(/\s+/g,'_')}`];
+    for(const sel of ids){ try{ const el = rootSvg.querySelector(sel); if(el){ tag(el, st); break; } }catch{} }
   });
 
-  svg.querySelectorAll('[inkscape\\:label]').forEach(el=>{
-    const nm = (el.getAttribute('inkscape:label')||'').trim().toLowerCase();
-    const st = byName.get(nm);
-    if(st){ tag(el, st); }
+  rootSvg.querySelectorAll('[inkscape\\:label],[data-name],[name],[data-title]').forEach(el=>{
+    const keys=[el.getAttribute('inkscape:label'), el.getAttribute('data-name'), el.getAttribute('name'), el.getAttribute('data-title')];
+    for(const k of keys){ if(!k) continue; const st=byName.get(k.trim().toLowerCase()); if(st){ tag(el, st); break; } }
   });
 
-  svg.querySelectorAll('title').forEach(t=>{
-    const nm = (t.textContent||'').trim().toLowerCase();
-    const st = byName.get(nm);
-    if(st){ tag(t.parentElement, st); }
+  rootSvg.querySelectorAll('title').forEach(t=>{
+    const nm=(t.textContent||'').trim().toLowerCase(); const st=byName.get(nm); if(st) tag(t.parentElement, st);
   });
-
-  console.log(`[map] Indexed states via attributes: ${tagged.size}/50`);
 }
 
-// Matching helpers
 function findStateNodes(code, name){
   if(!svgRoot) return [];
   const results = new Set();
-  const idCandidates = [`#${CSS.escape(code)}`, `#US-${CSS.escape(code)}`, `#us-${CSS.escape(code.toLowerCase())}`];
-  for(const sel of idCandidates){
-    const el = svgRoot.querySelector(sel);
-    if(el) results.add(el);
+  const q = (sel)=>{ try{ const el = svgRoot.querySelector(sel); if(el) results.add(el); }catch{} };
+
+  q(`#${CSS.escape(code)}`);
+  q(`#US-${CSS.escape(code)}`);
+  q(`#us-${CSS.escape(code.toLowerCase())}`);
+  q(`#state_${CSS.escape(code.toLowerCase())}`);
+  q(`#${CSS.escape(name.replace(/\s+/g,'_'))}`);
+
+  if(svgRoot.querySelectorAll){
+    svgRoot.querySelectorAll(`[data-code="${code}"]`).forEach(el=>results.add(el));
+    svgRoot.querySelectorAll(`[data-name="${name.replace(/"/g,'\\"')}"]`).forEach(el=>results.add(el));
+    svgRoot.querySelectorAll(`[inkscape\\:label="${name.replace(/"/g,'\\"')}"]`).forEach(el=>results.add(el));
   }
-  svgRoot.querySelectorAll(`[data-code="${code}"]`).forEach(el=>results.add(el));
-  svgRoot.querySelectorAll(`[data-name="${cssEq(name)}"]`).forEach(el=>results.add(el));
-  svgRoot.querySelectorAll(`[inkscape\\:label="${cssEq(name)}"]`).forEach(el=>results.add(el));
   return [...results];
 }
-function cssEq(s){ return s.replace(/"/g,'\\"'); }
 
 function clearHighlight(){
   if(!svgRoot) return;
-  svgRoot.querySelectorAll('.hl').forEach(n=>{
-    n.classList.remove('hl','hl-anim');
-  });
-  highlightedNodes = [];
-  currentHighlight = null;
+  if(svgRoot.querySelectorAll) svgRoot.querySelectorAll('.hl').forEach(n=>n.classList.remove('hl','hl-anim'));
+  highlightedNodes = []; currentHighlight = null;
 }
-
 function highlightState(code){
   const st = byCode[code];
   clearHighlight();
   const nodes = findStateNodes(code, st.name);
-  if(!nodes.length){
-    console.warn(`[map] highlight: No nodes found for ${code} (${st.name})`);
-    return;
-  }
-  nodes.forEach(el=>{
-    el.classList.add('hl','hl-anim');
-    el.querySelectorAll('*').forEach(ch=>ch.classList.add('hl','hl-anim'));
-  });
-  highlightedNodes = nodes;
-  currentHighlight = code;
+  if(!nodes.length){ console.warn(`[map] highlight: No nodes found for ${code} (${st.name})`); return; }
+  nodes.forEach(el=>{ try{ el.classList.add('hl','hl-anim'); if(el.querySelectorAll) el.querySelectorAll('*').forEach(ch=>ch.classList.add('hl','hl-anim')); }catch{} });
+  highlightedNodes = nodes; currentHighlight = code;
   console.log(`[map] highlight: ${code} (${st.name}) — highlighted ${nodes.length} node(s)`);
 }
 
-// Click to answer in easy mode
+// Click-to-answer on the map (easy mode)
 function attachMapClick(){
   if(!svgRoot) return;
+
+  if(svgObjectEl && svgObjectEl.contentDocument){
+    const svg = svgObjectEl.contentDocument.documentElement;
+    svg.addEventListener('click', e=>{
+      if(!currentHighlight || modeSel.value!=='easy') return;
+      const inside = highlightedNodes.some(n => n.contains(e.target) || n === e.target);
+      if(inside){ const st = byCode[currentHighlight]; handlePick(st.name, st.name); }
+    }, {passive:true});
+    return;
+  }
+
   const clone = svgRoot.cloneNode(true);
   svgRoot.replaceWith(clone);
   svgRoot = clone;
-
   svgRoot.addEventListener('click', e=>{
-    if(!currentHighlight) return;
-    if(modeSel.value!=='easy') return;
-    const path = e.target;
-    const inside = highlightedNodes.some(n => n.contains(path) || n === path);
-    if(inside){
-      const st = byCode[currentHighlight];
-      handlePick(st.name, st.name);
-    }
-  });
+    if(!currentHighlight || modeSel.value!=='easy') return;
+    const inside = highlightedNodes.some(n => n.contains(e.target) || n === e.target);
+    if(inside){ const st = byCode[currentHighlight]; handlePick(st.name, st.name); }
+  }, {passive:true});
 }
 
-/* ---------------------------
-   Deck Management
-----------------------------*/
+/* --------------------------------------------
+   Deck / Flags / Feedback / Choices
+---------------------------------------------*/
 function makeFullDeck(){ deck = shuffle(STATES.map(s=>s.code)); idx = 0; score = 0; answered.clear(); wrongOnly = false; updateHeader(); }
 function makeWrongOnlyDeck(){ const wrong = wrongCodes(); if(!wrong.length) return; deck = shuffle([...wrong]); idx = 0; score = 0; answered.clear(); wrongOnly = true; updateHeader(); }
 function nextQuestion(){
@@ -481,67 +579,33 @@ function nextQuestion(){
   else {
     questionEl.textContent = `Done! Score: ${score}/${answeredCount()} ${percent()}%.`;
     metaEl.textContent = wrongOnly ? 'Wrong-only mini-quiz complete.' : 'Quiz complete.';
-    choicesEl.innerHTML = ''; freeRow.classList.add('hide');
-    feedbackEl.textContent = ''; feedbackEl.classList.add('hide');
+    choicesEl.innerHTML = ''; freeRow.classList.add('hide'); feedbackEl.textContent = ''; feedbackEl.classList.add('hide');
     clearHighlight(); prevBtn.disabled = false; nextBtn.disabled = true; updateHeader();
   }
 }
 function prevQuestion(){ if(idx>0){ idx--; render(); } }
 
-/* ---------------------------
-   Answer helpers
-----------------------------*/
-function mcqOptionsPool(items, correct, n){
-  const pool = items.filter(v => v !== correct);
-  const picks = []; const used = new Set();
-  while(picks.length < n){
-    const x = pool[Math.floor(Math.random()*pool.length)];
-    if(!used.has(x)){ picks.push(x); used.add(x); }
-  }
-  return shuffle([correct, ...picks]);
-}
-function normalize(s){ return s.normalize('NFD').replace(/\p{Diacritic}/gu,'').trim().toLowerCase().replace(/\s+/g,' '); }
-
-/* ---------------------------
-   Flags helper
-----------------------------*/
-const FLAG_EXCEPTIONS = new Map([
-  ["Georgia","Flag of Georgia (U.S. state).svg"],
-]);
-function flagFileName(stateName){
-  if(FLAG_EXCEPTIONS.has(stateName)) return FLAG_EXCEPTIONS.get(stateName);
-  return `Flag of ${stateName}.svg`;
-}
-function flagUrl(stateName, width=320){
-  const file = flagFileName(stateName);
-  return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(file)}?width=${width}`;
-}
+const FLAG_EXCEPTIONS = new Map([["Georgia","Flag of Georgia (U.S. state).svg"]]);
+function flagFileName(stateName){ return FLAG_EXCEPTIONS.get(stateName) || `Flag of ${stateName}.svg`; }
+function flagUrl(stateName, width=360){ return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(flagFileName(stateName))}?width=${width}`; }
 function buildExtraInfo(stateObj, mode){
   const lines = [];
-  if(mode==='easy' && REVEAL_CAPITAL){
-    lines.push(`<div class="small">Capital: ${stateObj.capital}</div>`);
-  }
-  if(SHOW_FLAG){
-    const url = flagUrl(stateObj.name, 360);
-    lines.push(`<div class="flag-wrap"><img src="${url}" alt="Flag of ${stateObj.name}" loading="lazy"></div>`);
-  }
+  if(mode==='easy' && REVEAL_CAPITAL) lines.push(`<div class="small">Capital: ${stateObj.capital}</div>`);
+  if(SHOW_FLAG) lines.push(`<div class="flag-wrap"><img src="${flagUrl(stateObj.name,360)}" alt="Flag of ${stateObj.name}" loading="lazy"></div>`);
   return lines.join("");
 }
 
-/* ---------------------------
+/* --------------------------------------------
    Render per mode
-----------------------------*/
+---------------------------------------------*/
 function render(){
   if(deck.length===0){ questionEl.textContent='No deck.'; return; }
   updateHeader();
-  const code = deck[idx];
-  const st = byCode[code];
-  const mode = modeSel.value;
+  const code = deck[idx]; const st = byCode[code]; const mode = modeSel.value;
 
   feedbackEl.textContent=''; feedbackEl.classList.add('hide');
-  choicesEl.innerHTML = '';
-  freeRow.classList.add('hide');
-  hintArea.textContent = '';
+  choicesEl.innerHTML=''; hintArea.textContent='';
+  freeRow.classList.add('hide'); freeInput.value=''; freeInput.disabled=false; checkBtn.disabled=false;
 
   highlightState(code);
 
@@ -550,158 +614,79 @@ function render(){
     questionEl.textContent = 'Select the correct state:';
     const opts = buildStateChoicesWithRegionalDecoys(st, MCQ_CHOICES);
     choicesEl.className = gridClassForChoices(MCQ_CHOICES);
-    opts.forEach(opt=>{
-      const b = document.createElement('button');
-      b.className = 'choice'; b.textContent = opt;
-      b.onclick = ()=>handlePick(opt, st.name);
-      const was = answered.get(code);
-      if(was){ b.disabled = true; if(opt===st.name) b.classList.add('correct'); if(was.pick===opt && !was.correct) b.classList.add('wrong'); }
-      choicesEl.appendChild(b);
-    });
-    const was = answered.get(code);
-    if(was){
-      const extra = buildExtraInfo(st, 'easy');
-      showFeedback(was.correct, st.name, extra);
-    }
-  }
-  else if(mode==='intermediate'){
+    renderChoices(opts, st.name);
+    const was = answered.get(code); if(was){ showFeedback(was.correct, st.name, buildExtraInfo(st,'easy')); }
+  } else if(mode==='intermediate'){
     metaEl.textContent = `Pick the correct capital (${MCQ_CHOICES} choices).`;
     questionEl.textContent = `What is the capital of ${st.name}?`;
     const opts = buildCapitalChoicesWithDecoys(st, MCQ_CHOICES);
     choicesEl.className = gridClassForChoices(MCQ_CHOICES);
     renderChoices(opts, st.capital);
-    const was = answered.get(code);
-    if(was){
-      const extra = buildExtraInfo(st, 'intermediate');
-      showFeedback(was.correct, st.capital, extra);
-    }
-  }
-  else { // hard
+    const was = answered.get(code); if(was){ showFeedback(was.correct, st.capital, buildExtraInfo(st,'intermediate')); }
+  } else {
     metaEl.textContent = 'Type the correct capital (press Enter or click Check).';
     questionEl.textContent = `What is the capital of ${st.name}?`;
-    freeRow.classList.remove('hide');
-    freeInput.value = '';
-    freeInput.focus();
+    freeRow.classList.remove('hide'); freeInput.focus();
     checkBtn.onclick = ()=>{
-      const pickRaw = freeInput.value;
-      if(!pickRaw.trim()) return;
-      const right = st.capital;
-      const ok = normalize(pickRaw) === normalize(right);
-      registerAnswer(code, ok, pickRaw, right);
+      const pickRaw = freeInput.value; if(!pickRaw.trim()) return;
+      const ok = normalize(pickRaw) === normalize(st.capital);
+      registerAnswer(code, ok, pickRaw, st.capital);
     };
     const was = answered.get(code);
-    if(was){
-      freeInput.value = was.pick || '';
-      freeInput.disabled = true;
-      checkBtn.disabled = true;
-      const extra = buildExtraInfo(st, 'hard');
-      showFeedback(was.correct, st.capital, extra);
-    } else {
-      freeInput.disabled = false;
-      checkBtn.disabled = false;
-    }
+    if(was){ freeInput.value = was.pick||''; freeInput.disabled=true; checkBtn.disabled=true; showFeedback(was.correct, st.capital, buildExtraInfo(st,'hard')); }
   }
-
   prevBtn.disabled = (idx===0);
   nextBtn.textContent = (idx===deck.length-1) ? 'Finish' : 'Next';
 }
 
 function renderChoices(opts, correctText){
-  choicesEl.innerHTML = '';
+  choicesEl.innerHTML='';
   opts.forEach(opt=>{
-    const b = document.createElement('button');
-    b.className = 'choice'; b.textContent = opt;
-    b.onclick = ()=>handlePick(opt, correctText);
+    const b=document.createElement('button'); b.className='choice'; b.textContent=opt;
+    b.onclick=()=>handlePick(opt, correctText);
     const was = answered.get(deck[idx]);
-    if(was){
-      b.disabled = true;
-      if(opt===correctText) b.classList.add('correct');
-      if(was.pick===opt && !was.correct) b.classList.add('wrong');
-    }
+    if(was){ b.disabled=true; if(opt===correctText) b.classList.add('correct'); if(was.pick===opt && !was.correct) b.classList.add('wrong'); }
     choicesEl.appendChild(b);
   });
 }
 
-/* ---------------------------
-   Builders for choices
-----------------------------*/
-function buildStateChoicesWithRegionalDecoys(state, total){
-  const correct = state.name;
-  const used = new Set([correct]);
-  const decoys = [];
-
-  const sameRegion = shuffle(STATES.filter(s=>s.region===state.region && s.name!==state.name).map(s=>s.name));
-  while(decoys.length < Math.min(2, total-1) && sameRegion.length){
-    const x = sameRegion.pop();
-    if(!used.has(x)){ decoys.push(x); used.add(x); }
-  }
-
-  const others = shuffle(STATES.filter(s=>s.region!==state.region).map(s=>s.name));
-  while(decoys.length < (total-1) && others.length){
-    const x = others.pop();
-    if(!used.has(x)){ decoys.push(x); used.add(x); }
-  }
-
-  if(decoys.length < (total-1)){
-    const any = shuffle(STATES.map(s=>s.name));
-    while(decoys.length < (total-1) && any.length){
-      const x = any.pop();
-      if(!used.has(x)) { decoys.push(x); used.add(x); }
-    }
-  }
+/* --------------------------------------------
+   Choice builders
+---------------------------------------------*/
+function buildStateChoicesWithRegionalDecoys(state,total){
+  const correct=state.name, used=new Set([correct]), decoys=[];
+  const same=shuffle(STATES.filter(s=>s.region===state.region && s!==state).map(s=>s.name));
+  while(decoys.length<Math.min(2,total-1) && same.length){ const x=same.pop(); if(!used.has(x)){decoys.push(x); used.add(x);} }
+  const others=shuffle(STATES.filter(s=>s.region!==state.region).map(s=>s.name));
+  while(decoys.length<(total-1) && others.length){ const x=others.pop(); if(!used.has(x)){decoys.push(x); used.add(x);} }
+  if(decoys.length<(total-1)){ const any=shuffle(STATES.map(s=>s.name)); while(decoys.length<(total-1)&&any.length){ const x=any.pop(); if(!used.has(x)){decoys.push(x); used.add(x);} } }
   return shuffle([correct, ...decoys]).slice(0,total);
 }
-
-function buildCapitalChoicesWithDecoys(state, total){
-  const ans = state.capital;
-  const decoys = [];
-  const used = new Set([ans]);
-
-  shuffle([...(state.cities||[])]).forEach(c=>{
-    if(decoys.length < Math.min(4, total-1) && !used.has(c)){
-      decoys.push(c); used.add(c);
-    }
-  });
-
-  const others = shuffle(capitalNames.filter(c=>!used.has(c)));
-  while(decoys.length < (total-1) && others.length){
-    const x = others.pop();
-    decoys.push(x); used.add(x);
-  }
+function buildCapitalChoicesWithDecoys(state,total){
+  const ans=state.capital, decoys=[], used=new Set([ans]);
+  shuffle([...(state.cities||[])]).forEach(c=>{ if(decoys.length<Math.min(4,total-1)&&!used.has(c)){ decoys.push(c); used.add(c); } });
+  const others=shuffle(capitalNames.filter(c=>!used.has(c)));
+  while(decoys.length<(total-1) && others.length){ const x=others.pop(); decoys.push(x); used.add(x); }
   return shuffle([ans, ...decoys]).slice(0,total);
 }
 
-/* ---------------------------
-   Answer + feedback
-----------------------------*/
+/* --------------------------------------------
+   Answering & feedback
+---------------------------------------------*/
 function handlePick(pick, correctText){
-  const code = deck[idx];
-  const st = byCode[code];
+  const code=deck[idx]; const st=byCode[code];
   if(answered.has(code)) return;
-  const isCorrect = pick === correctText;
-  answered.set(code, {correct:isCorrect, pick});
-  if(isCorrect) score++;
-
-  document.querySelectorAll('button.choice').forEach(b=>{
-    b.disabled = true;
-    if(b.textContent===correctText) b.classList.add('correct');
-    if(b.textContent===pick && !isCorrect) b.classList.add('wrong');
-  });
-
-  const extra = buildExtraInfo(st, modeSel.value);
-  showFeedback(isCorrect, correctText, extra);
+  const ok = pick===correctText;
+  answered.set(code,{correct:ok, pick}); if(ok) score++;
+  document.querySelectorAll('button.choice').forEach(b=>{ b.disabled=true; if(b.textContent===correctText) b.classList.add('correct'); if(b.textContent===pick && !ok) b.classList.add('wrong'); });
+  showFeedback(ok, correctText, buildExtraInfo(st, modeSel.value));
   updateHeader();
 }
 function registerAnswer(code, ok, pick, correctText){
-  const st = byCode[code];
-  if(answered.has(code)) return;
-  answered.set(code, {correct:ok, pick});
-  if(ok) score++;
-  const extra = buildExtraInfo(st, modeSel.value);
-  showFeedback(ok, correctText, extra);
-  updateHeader();
+  const st=byCode[code]; if(answered.has(code)) return;
+  answered.set(code,{correct:ok, pick}); if(ok) score++;
+  showFeedback(ok, correctText, buildExtraInfo(st, modeSel.value)); updateHeader();
 }
-
 function showFeedback(isCorrect, correctText, extraHTML=""){
   feedbackEl.innerHTML = isCorrect
     ? `✅ Correct!${extraHTML ? `<div>${extraHTML}</div>` : ''}`
@@ -709,53 +694,28 @@ function showFeedback(isCorrect, correctText, extraHTML=""){
   feedbackEl.classList.remove('hide');
 }
 
-/* ---------------------------
+/* --------------------------------------------
    Wrong review dialog
-----------------------------*/
-wrongBtn.onclick = ()=>{
-  buildWrongList();
-  if(typeof wrongDlg.showModal === 'function'){ wrongDlg.showModal(); }
-  else { wrongDlg.setAttribute('open','open'); }
-};
+---------------------------------------------*/
+wrongBtn.onclick = ()=>{ buildWrongList(); if(typeof wrongDlg.showModal === 'function'){ wrongDlg.showModal(); } else { wrongDlg.setAttribute('open','open'); } };
 closeWrong.onclick = ()=> wrongDlg.close();
-
 function buildWrongList(){
   wrongList.innerHTML = '';
-  const wr = wrongCodes();
-  if(wr.length===0){
-    wrongList.innerHTML = '<p class="small">Nothing to review—nice!</p>';
-    return;
-  }
+  const wr=wrongCodes();
+  if(!wr.length){ wrongList.innerHTML='<p class="small">Nothing to review—nice!</p>'; return; }
   wr.forEach(code=>{
-    const st = byCode[code];
-    const res = answered.get(code);
-    const li = document.createElement('div');
-    li.className = 'row';
-    li.innerHTML = `
-      <h4>${st.name}</h4>
-      <p class="mine">Your answer: ${res.pick??'(blank)'}</p>
-      <p class="correct">Correct: ${st.capital}</p>
-    `;
-    const jump = document.createElement('button');
-    jump.className = 'btn jump';
-    jump.textContent = 'Jump to this question';
-    jump.onclick = ()=>{
-      const pos = deck.indexOf(code);
-      if(pos !== -1){ idx = pos; render(); wrongDlg.close(); }
-      else {
-        wrongDlg.close();
-        deck = shuffle([code, ...STATES.map(s=>s.code).filter(c=>c!==code)]);
-        idx = 0; score=0; answered.clear(); wrongOnly=false; render();
-      }
-    };
-    li.appendChild(jump);
-    wrongList.appendChild(li);
+    const st=byCode[code], res=answered.get(code);
+    const li=document.createElement('div'); li.className='row';
+    li.innerHTML = `<h4>${st.name}</h4><p class="mine">Your answer: ${res.pick??'(blank)'}</p><p class="correct">Correct: ${st.capital}</p>`;
+    const jump=document.createElement('button'); jump.className='btn jump'; jump.textContent='Jump to this question';
+    jump.onclick=()=>{ const pos=deck.indexOf(code); if(pos!==-1){ idx=pos; render(); wrongDlg.close(); } else { wrongDlg.close(); deck=shuffle([code,...STATES.map(s=>s.code).filter(c=>c!==code)]); idx=0; score=0; answered.clear(); wrongOnly=false; render(); } };
+    li.appendChild(jump); wrongList.appendChild(li);
   });
 }
 
-/* ---------------------------
+/* --------------------------------------------
    Controls & keyboard
-----------------------------*/
+---------------------------------------------*/
 prevBtn.onclick = prevQuestion;
 nextBtn.onclick = nextQuestion;
 restartBtn.onclick = ()=>{ makeFullDeck(); render(); };
@@ -763,36 +723,17 @@ shuffleBtn.onclick = ()=>{ makeFullDeck(); render(); };
 retakeWrongBtn.onclick = ()=>{ makeWrongOnlyDeck(); render(); };
 modeSel.onchange = ()=>{ score=0; answered.clear(); idx=0; render(); };
 
-// Options: choice count
 choiceCountSel.value = String(MCQ_CHOICES);
-choiceCountSel.onchange = ()=>{
-  MCQ_CHOICES = clamp(parseInt(choiceCountSel.value,10),5,8);
-  localStorage.setItem('mcq_choices', String(MCQ_CHOICES));
-  render();
-};
-
-// Options: reveal capital in Easy mode
+choiceCountSel.onchange = ()=>{ MCQ_CHOICES = clamp(parseInt(choiceCountSel.value,10),5,9); localStorage.setItem('mcq_choices', String(MCQ_CHOICES)); render(); };
 revealCapitalChk.checked = REVEAL_CAPITAL;
-revealCapitalChk.onchange = ()=>{
-  REVEAL_CAPITAL = revealCapitalChk.checked;
-  localStorage.setItem('reveal_capital', REVEAL_CAPITAL ? '1' : '0');
-  render();
-};
-
-// Options: show flag
+revealCapitalChk.onchange = ()=>{ REVEAL_CAPITAL = revealCapitalChk.checked; localStorage.setItem('reveal_capital', REVEAL_CAPITAL?'1':'0'); render(); };
 showFlagChk.checked = SHOW_FLAG;
-showFlagChk.onchange = ()=>{
-  SHOW_FLAG = showFlagChk.checked;
-  localStorage.setItem('show_flag', SHOW_FLAG ? '1' : '0');
-  render(); // refresh already-answered view to add/remove flag
-};
+showFlagChk.onchange = ()=>{ SHOW_FLAG = showFlagChk.checked; localStorage.setItem('show_flag', SHOW_FLAG?'1':'0'); render(); };
 
-// Keyboard shortcuts adapt to MCQ_CHOICES
 document.addEventListener('keydown', (e)=>{
-  const mode = modeSel.value;
-  if(mode==='hard'){
-    if(e.key==='Enter'){ checkBtn.click(); }
-  } else {
+  const mode=modeSel.value;
+  if(mode==='hard'){ if(e.key==='Enter') checkBtn.click(); }
+  else {
     const n = parseInt(e.key,10);
     if(!isNaN(n) && n>=1 && n<=MCQ_CHOICES){
       const btn = choicesEl.querySelectorAll('button.choice')[n-1];
@@ -801,9 +742,9 @@ document.addEventListener('keydown', (e)=>{
   }
 });
 
-/* ---------------------------
+/* --------------------------------------------
    Start
-----------------------------*/
+---------------------------------------------*/
 (async function init(){
   await loadSvgFromUrl();
   makeFullDeck();
