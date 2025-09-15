@@ -554,7 +554,7 @@ function attachMapClick(){
     svg.addEventListener('click', e=>{
       if(!currentHighlight || modeSel.value!=='easy') return;
       const inside = highlightedNodes.some(n => n.contains(e.target) || n === e.target);
-      if(inside){ const st = byCode[currentHighlight]; handlePick(st.name, st.name); }
+      if(inside){ const st = byCode[currentHighlight]; console.log('[map] easy-mode map clicks disabled'); }
     }, {passive:true});
     return;
   }
@@ -565,7 +565,7 @@ function attachMapClick(){
   svgRoot.addEventListener('click', e=>{
     if(!currentHighlight || modeSel.value!=='easy') return;
     const inside = highlightedNodes.some(n => n.contains(e.target) || n === e.target);
-    if(inside){ const st = byCode[currentHighlight]; handlePick(st.name, st.name); }
+    if(inside){ const st = byCode[currentHighlight]; console.log('[map] easy-mode map clicks disabled'); }
   }, {passive:true});
 }
 
