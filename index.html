@@ -30,7 +30,6 @@
   .card{background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:0 1px 0 rgba(0,0,0,.04);padding:16px}
   .mapbox{position:relative;display:flex;align-items:center;justify-content:center;min-height:320px}
   .mapbox svg, .mapbox object{max-width:100%;width:100%;display:block}
-  /* default min-height so Safari never collapses before we size it */
   .mapbox object{min-height:320px}
   .map-status{position:absolute;top:8px;left:8px;background:#fff;border:1px solid var(--border);padding:4px 8px;border-radius:8px}
   .meta{color:var(--muted);font-size:14px;margin-bottom:8px}
@@ -64,10 +63,14 @@
   .row .correct{color:var(--ok)}
   .row button.jump{margin-top:8px}
 
-  /* Highlighted state: blue fill, dark blue stroke; animate on appear */
+  /* Default highlight (current question): blue fill + dark outline with a slight nudge */
   .hl, .hl * { fill: var(--mapHl) !important; stroke: var(--mapHlStroke) !important; stroke-width:4 !important; }
   .hl-anim, .hl-anim * { transform-box: fill-box; transform-origin: center; animation: nudge .45s ease-out; }
   @keyframes nudge { 0%{transform:translate(0,0) scale(1)} 35%{transform:translate(0,-4px) scale(1.02)} 100%{transform:translate(0,0) scale(1)} }
+
+  /* Easy-mode feedback: correct = green, wrong = red */
+  .hl-correct, .hl-correct * { fill:#d1fae5 !important; stroke:#065f46 !important; stroke-width:4 !important; }
+  .hl-wrong,   .hl-wrong *   { fill:#fee2e2 !important; stroke:#991b1b !important; stroke-width:4 !important; }
 
   .flag-wrap{margin-top:8px;display:flex;align-items:center;gap:10px}
   .flag-wrap img{max-width:240px;width:100%;height:auto;border:1px solid var(--border);border-radius:8px;box-shadow:0 1px 0 rgba(0,0,0,.04)}
@@ -411,7 +414,6 @@ function setObjectHeightFromViewBox(){
   if(!svgObjectEl || !svgObjectEl.contentDocument) return;
   const innerSvg = svgObjectEl.contentDocument.documentElement;
   if(!innerSvg) return;
-  // ratio from viewBox or fallback
   let vw=959, vh=593;
   const vb = innerSvg.getAttribute('viewBox');
   if(vb){
@@ -459,12 +461,11 @@ async function tryObjectEmbed(svgText){
   attachMapClick();
   injectHighlightStylesIntoObject();
 
-  // ---- explicit height sizing for Safari ----
+  // explicit height sizing for Safari
   setObjectHeightFromViewBox();
   if(resizeHandler) window.removeEventListener('resize', resizeHandler);
   resizeHandler = ()=>setObjectHeightFromViewBox();
   window.addEventListener('resize', resizeHandler);
-  // ------------------------------------------
 
   return found >= 40;
 }
@@ -479,6 +480,8 @@ function injectHighlightStylesIntoObject(){
                  stroke-width:4 !important; }
     .hl-anim, .hl-anim * { transform-box: fill-box; transform-origin: center; animation: nudge .45s ease-out; }
     @keyframes nudge { 0%{transform:translate(0,0) scale(1)} 35%{transform:translate(0,-4px) scale(1.02)} 100%{transform:translate(0,0) scale(1)} }
+    .hl-correct, .hl-correct * { fill:#d1fae5 !important; stroke:#065f46 !important; stroke-width:4 !important; }
+    .hl-wrong,   .hl-wrong *   { fill:#fee2e2 !important; stroke:#991b1b !important; stroke-width:4 !important; }
   `;
   doc.head.appendChild(style);
 }
@@ -532,7 +535,10 @@ function findStateNodes(code, name){
 
 function clearHighlight(){
   if(!svgRoot) return;
-  if(svgRoot.querySelectorAll) svgRoot.querySelectorAll('.hl').forEach(n=>n.classList.remove('hl','hl-anim'));
+  if(svgRoot.querySelectorAll){
+    svgRoot.querySelectorAll('.hl, .hl-correct, .hl-wrong')
+      .forEach(n=>n.classList.remove('hl','hl-anim','hl-correct','hl-wrong'));
+  }
   highlightedNodes = []; currentHighlight = null;
 }
 function highlightState(code){
@@ -540,12 +546,15 @@ function highlightState(code){
   clearHighlight();
   const nodes = findStateNodes(code, st.name);
   if(!nodes.length){ console.warn(`[map] highlight: No nodes found for ${code} (${st.name})`); return; }
-  nodes.forEach(el=>{ try{ el.classList.add('hl','hl-anim'); if(el.querySelectorAll) el.querySelectorAll('*').forEach(ch=>ch.classList.add('hl','hl-anim')); }catch{} });
+  nodes.forEach(el=>{ try{
+    el.classList.add('hl','hl-anim');
+    if(el.querySelectorAll) el.querySelectorAll('*').forEach(ch=>ch.classList.add('hl','hl-anim'));
+  }catch{} });
   highlightedNodes = nodes; currentHighlight = code;
   console.log(`[map] highlight: ${code} (${st.name}) — highlighted ${nodes.length} node(s)`);
 }
 
-// Click-to-answer on the map (easy mode)
+// Click-to-answer on the map (disabled auto-submit in Easy mode)
 function attachMapClick(){
   if(!svgRoot) return;
 
@@ -554,7 +563,7 @@ function attachMapClick(){
     svg.addEventListener('click', e=>{
       if(!currentHighlight || modeSel.value!=='easy') return;
       const inside = highlightedNodes.some(n => n.contains(e.target) || n === e.target);
-      if(inside){ const st = byCode[currentHighlight]; console.log('[map] easy-mode map clicks disabled'); }
+      if(inside){ console.log('[map] easy-mode map clicks disabled'); }
     }, {passive:true});
     return;
   }
@@ -565,7 +574,7 @@ function attachMapClick(){
   svgRoot.addEventListener('click', e=>{
     if(!currentHighlight || modeSel.value!=='easy') return;
     const inside = highlightedNodes.some(n => n.contains(e.target) || n === e.target);
-    if(inside){ const st = byCode[currentHighlight]; console.log('[map] easy-mode map clicks disabled'); }
+    if(inside){ console.log('[map] easy-mode map clicks disabled'); }
   }, {passive:true});
 }
 
@@ -678,15 +687,51 @@ function handlePick(pick, correctText){
   if(answered.has(code)) return;
   const ok = pick===correctText;
   answered.set(code,{correct:ok, pick}); if(ok) score++;
-  document.querySelectorAll('button.choice').forEach(b=>{ b.disabled=true; if(b.textContent===correctText) b.classList.add('correct'); if(b.textContent===pick && !ok) b.classList.add('wrong'); });
+
+  // Disable MCQ buttons + style
+  document.querySelectorAll('button.choice').forEach(b=>{
+    b.disabled=true;
+    if(b.textContent===correctText) b.classList.add('correct');
+    if(b.textContent===pick && !ok) b.classList.add('wrong');
+  });
+
+  // Easy-mode map feedback: wrong pick -> correct turns green, wrong-picked turns red
+  if (modeSel.value === 'easy' && !ok) {
+    // Correct state -> green
+    const correctNodes = findStateNodes(code, st.name);
+    correctNodes.forEach(el=>{
+      el.classList.remove('hl','hl-anim','hl-wrong');
+      el.classList.add('hl-correct');
+      if (el.querySelectorAll) el.querySelectorAll('*').forEach(ch=>{
+        ch.classList.remove('hl','hl-anim','hl-wrong');
+        ch.classList.add('hl-correct');
+      });
+    });
+    // Wrong-picked state -> red
+    const wrongState = STATES.find(s => s.name === pick);
+    if (wrongState) {
+      const wrongNodes = findStateNodes(wrongState.code, wrongState.name);
+      wrongNodes.forEach(el=>{
+        el.classList.remove('hl','hl-anim','hl-correct');
+        el.classList.add('hl-wrong');
+        if (el.querySelectorAll) el.querySelectorAll('*').forEach(ch=>{
+          ch.classList.remove('hl','hl-anim','hl-correct');
+          ch.classList.add('hl-wrong');
+        });
+      });
+    }
+  }
+
   showFeedback(ok, correctText, buildExtraInfo(st, modeSel.value));
   updateHeader();
 }
+
 function registerAnswer(code, ok, pick, correctText){
   const st=byCode[code]; if(answered.has(code)) return;
   answered.set(code,{correct:ok, pick}); if(ok) score++;
   showFeedback(ok, correctText, buildExtraInfo(st, modeSel.value)); updateHeader();
 }
+
 function showFeedback(isCorrect, correctText, extraHTML=""){
   feedbackEl.innerHTML = isCorrect
     ? `✅ Correct!${extraHTML ? `<div>${extraHTML}</div>` : ''}`
