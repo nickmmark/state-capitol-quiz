@@ -1,24 +1,20 @@
-# state-capitol-quiz
-web app to gamify my kids learning
+# european-geography-quiz
+web app to gamify my kids (and my) learning
 
-Memorization is important but it can be frustrating and boring. To help my kids learn state capitols we decided to make game out of it.
-
-You can play the game [here](https://nickmmark.github.io/state-capitol-quiz/).
+You can play the game [here]().
 
 🗺️ Our game has several modes:
-* Easy: pick the state that is highlighted on a map (multiple choice)
+* Easy: pick the Country that is highlighted on a map (multiple choice)
 * Intermediate: pick the correct state capital for a state shown on the map (multiple choice)
-* Hard: type the state capital for a state shown on the map (free response)
+* Flag mode: select the flag for the highlighted country
+* Hard: type the capital for a country shown on the map (free response)
 
 Behind the scenes
-* we are using the [Wikimedia US map SVG file](https://en.m.wikipedia.org/wiki/File:Blank_US_Map_(states_only).svg) and highlighting states
-* the database includes regions so the multiple choice will include neighboring states
-* the database includes names of other cities in the same state as "decoy answers" (this makes is MUCH harder)
+* uses the european map SVG from wikipedia
 
 ## ⚙️ Settings
-* choose how many answer choices there will be for multiple choice mode (5-8; default 6)
-* choose to reveal the state capital when playing in states mode (easy); this is to help kids learn the state capitols as they learn states
-
+* choose to display the country name
+ 
 ## 🏗️ To do
 * would be fun to make a version of this game for learning other countries geography
 
